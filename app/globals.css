@@ -186,7 +186,7 @@ h3 {
 .kpi-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   order: 9;
 }
 
@@ -385,6 +385,7 @@ h3 {
 .flow-section,
 .quality-section,
 .observation-section,
+.spot-insight-section,
 .forecast-section,
 .archive-section,
 .chart-section {

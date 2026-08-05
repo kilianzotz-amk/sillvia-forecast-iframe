@@ -101,6 +101,16 @@ type RuntimeComparisonSummary = {
   latest: RuntimeComparisonPoint | null;
 };
 
+type InflowTrend = {
+  current: number | null;
+  before30: number | null;
+  before60: number | null;
+  delta30: number | null;
+  delta60: number | null;
+  label: "steigend" | "fallend" | "stabil" | "unklar";
+  tone: "up" | "down" | "flat" | "unknown";
+};
+
 type TimeDomain = {
   min: number;
   max: number;
@@ -397,6 +407,20 @@ function qualityTone(score: number) {
   if (score >= 75) return "good";
   if (score >= 50) return "ok";
   return "bad";
+}
+
+function inflowTrendLabel(delta60: number | null) {
+  if (delta60 === null) return "unklar";
+  if (delta60 >= 0.8) return "steigend";
+  if (delta60 <= -0.8) return "fallend";
+  return "stabil";
+}
+
+function inflowTrendTone(label: InflowTrend["label"]) {
+  if (label === "steigend") return "up";
+  if (label === "fallend") return "down";
+  if (label === "stabil") return "flat";
+  return "unknown";
 }
 
 function waveQualityScore(
@@ -787,6 +811,49 @@ function shiftedUpstreamAt(
   };
 }
 
+function inflowTrendAt(
+  history: HistoryPoint[],
+  t: number,
+  lagKroessbach = 0,
+  lagPuig = 0,
+): InflowTrend {
+  const maxAgeMs = sampleInterval * 3;
+  const current = shiftedUpstreamAt(
+    history,
+    t,
+    lagKroessbach,
+    lagPuig,
+    maxAgeMs,
+  ).value;
+  const before30 = shiftedUpstreamAt(
+    history,
+    t - 30 * 60 * 1000,
+    lagKroessbach,
+    lagPuig,
+    maxAgeMs,
+  ).value;
+  const before60 = shiftedUpstreamAt(
+    history,
+    t - 60 * 60 * 1000,
+    lagKroessbach,
+    lagPuig,
+    maxAgeMs,
+  ).value;
+  const delta30 = current !== null && before30 !== null ? current - before30 : null;
+  const delta60 = current !== null && before60 !== null ? current - before60 : null;
+  const label = inflowTrendLabel(delta60);
+
+  return {
+    current,
+    before30,
+    before60,
+    delta30,
+    delta60,
+    label,
+    tone: inflowTrendTone(label),
+  };
+}
+
 function pearsonCorrelation(pairs: { x: number; y: number }[]) {
   if (pairs.length < 3) return null;
   const meanX = pairs.reduce((sum, pair) => sum + pair.x, 0) / pairs.length;
@@ -1118,6 +1185,14 @@ export default function Home() {
   const visibleHistoryPoints = forecastHistory.filter(
     (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
   );
+  const waveLagKroessbach = Math.max(
+    0,
+    forecastSettings.lagKroessbach - forecastSettings.waveOffset,
+  );
+  const waveLagPuig = Math.max(
+    0,
+    forecastSettings.lagPuig - forecastSettings.waveOffset,
+  );
   const reichenauEquivalentTime = waveTime + forecastSettings.waveOffset * 60 * 1000;
   const expectedReichenauAtWave =
     valueAt(forecastLine, reichenauEquivalentTime) ?? downstreamFlow;
@@ -1125,10 +1200,17 @@ export default function Home() {
     shiftedUpstreamAt(
       forecastHistory,
       waveTime,
-      Math.max(0, forecastSettings.lagKroessbach - forecastSettings.waveOffset),
-      Math.max(0, forecastSettings.lagPuig - forecastSettings.waveOffset),
+      waveLagKroessbach,
+      waveLagPuig,
     ).value ?? upstreamFlow;
   const expectedWaveDelta = expectedReichenauAtWave - upstreamAtWave;
+  const currentInflowTrend = inflowTrendAt(forecastHistory, waveTime);
+  const waveInflowTrend = inflowTrendAt(
+    forecastHistory,
+    waveTime,
+    waveLagKroessbach,
+    waveLagPuig,
+  );
   const levelAtWave =
     latestAt(forecastHistory, waveTime, "reichenauLevel") ??
     valueOrNull(reichenau?.water.value);
@@ -1146,6 +1228,7 @@ export default function Home() {
     time: waveTime,
     delta: expectedWaveDelta,
     upstream: upstreamAtWave,
+    trend: waveInflowTrend,
     level: levelAtWave,
     modelScore: qualityNowModelScore,
     manual: manualNow,
@@ -1162,11 +1245,17 @@ export default function Home() {
         shiftedUpstreamAt(
           forecastHistory,
           point.t,
-          Math.max(0, forecastSettings.lagKroessbach - forecastSettings.waveOffset),
-          Math.max(0, forecastSettings.lagPuig - forecastSettings.waveOffset),
+          waveLagKroessbach,
+          waveLagPuig,
         ).value ??
         valueAt(forecastLine, point.t + forecastSettings.waveOffset * 60 * 1000) ??
         upstreamAtWave;
+      const trend = inflowTrendAt(
+        forecastHistory,
+        point.t,
+        waveLagKroessbach,
+        waveLagPuig,
+      );
       const level = latestAt(forecastHistory, point.t, "reichenauLevel") ?? levelAtWave;
       const modelScore = waveQualityScore(
         point.value,
@@ -1182,6 +1271,7 @@ export default function Home() {
         time: point.t,
         delta: point.value,
         upstream,
+        trend,
         level,
         modelScore,
         manual,
@@ -1254,6 +1344,11 @@ export default function Home() {
           label="Unterlieger im Verhältnis"
           value={formatNumber(ratio, 0)}
           unit="%"
+        />
+        <Metric
+          label="Zufluss-Tendenz"
+          value={currentInflowTrend.label}
+          unit={`${formatSignedNumber(currentInflowTrend.delta60, 2)} m³/s / 60 min`}
         />
       </section>
 
@@ -1830,6 +1925,7 @@ function WaveQualityCard({
     time: number;
     delta: number;
     upstream: number;
+    trend: InflowTrend;
     level: number | null;
     score: number;
     modelScore: number;
@@ -1863,6 +1959,12 @@ function WaveQualityCard({
         <div>
           <dt>Zuflüsse</dt>
           <dd>{formatNumber(quality.upstream, 2)} m³/s</dd>
+        </div>
+        <div>
+          <dt>Tendenz</dt>
+          <dd>
+            {quality.trend.label} · {formatSignedNumber(quality.trend.delta60, 2)} m³/s
+          </dd>
         </div>
         <div>
           <dt>Pegel</dt>
