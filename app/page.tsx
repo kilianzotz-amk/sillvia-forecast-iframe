@@ -82,6 +82,25 @@ type ManualQualitySignal = {
   observedAt: number;
 };
 
+type RuntimeComparisonPoint = {
+  t: number;
+  expected: number;
+  measured: number;
+  delta: number;
+  kroessbach: number | null;
+  puig: number | null;
+};
+
+type RuntimeComparisonSummary = {
+  count: number;
+  correlation: number | null;
+  kroessbachCorrelation: number | null;
+  puigCorrelation: number | null;
+  meanDelta: number | null;
+  meanAbsoluteDelta: number | null;
+  latest: RuntimeComparisonPoint | null;
+};
+
 type TimeDomain = {
   min: number;
   max: number;
@@ -327,6 +346,16 @@ function formatTrimCm(value: number | null, fallback: string) {
   }
 
   return fallback || "n/a";
+}
+
+function formatSignedNumber(value: number | null, digits = 2) {
+  if (value === null) return "n/a";
+  return `${value >= 0 ? "+" : ""}${formatNumber(value, digits)}`;
+}
+
+function formatCorrelation(value: number | null) {
+  if (value === null || Number.isNaN(value)) return "n/a";
+  return formatNumber(value, 2);
 }
 
 function formatTriple(
@@ -598,14 +627,9 @@ function shiftedForecast(
 
   return Array.from({ length: samples }, (_, index) => {
     const t = start + index * sampleInterval;
-    const krSource = latestAt(history, t - lagKroessbach * 60 * 1000, "kroessbach");
-    const puigSource = latestAt(history, t - lagPuig * 60 * 1000, "puig");
-    const value =
-      krSource === null && puigSource === null
-        ? null
-        : (krSource ?? 0) + (puigSource ?? 0);
+    const shifted = shiftedUpstreamAt(history, t, lagKroessbach, lagPuig);
 
-    return { t, value };
+    return { t, value: shifted.value };
   });
 }
 
@@ -655,13 +679,6 @@ function reviewRangeHours(range: ReviewRange) {
   return 24;
 }
 
-function upstreamAt(history: HistoryPoint[], t: number) {
-  const krSource = latestAt(history, t, "kroessbach");
-  const puigSource = latestAt(history, t, "puig");
-  if (krSource === null && puigSource === null) return null;
-  return (krSource ?? 0) + (puigSource ?? 0);
-}
-
 function valueAt(
   points: { t: number; value: number | null }[],
   t: number,
@@ -693,12 +710,19 @@ function expectedDeltaSeries(
   forecast: { t: number; value: number | null }[],
   history: HistoryPoint[],
   waveOffset: number,
+  lagKroessbach: number,
+  lagPuig: number,
 ) {
   const offsetMs = waveOffset * 60 * 1000;
 
   return forecast.map((point) => {
     const waveTime = point.t - offsetMs;
-    const upstream = upstreamAt(history, waveTime);
+    const upstream = shiftedUpstreamAt(
+      history,
+      waveTime,
+      Math.max(0, lagKroessbach - waveOffset),
+      Math.max(0, lagPuig - waveOffset),
+    ).value;
 
     return {
       t: waveTime,
@@ -710,6 +734,22 @@ function expectedDeltaSeries(
   });
 }
 
+function latestAtWithAge(
+  history: HistoryPoint[],
+  t: number,
+  key: keyof Omit<HistoryPoint, "t">,
+  maxAgeMs: number,
+) {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const point = history[index];
+    if (point.t <= t) {
+      if (t - point.t > maxAgeMs) return null;
+      return point[key];
+    }
+  }
+  return null;
+}
+
 function latestAt(
   history: HistoryPoint[],
   t: number,
@@ -719,6 +759,124 @@ function latestAt(
     if (history[index].t <= t) return history[index][key];
   }
   return null;
+}
+
+function shiftedUpstreamAt(
+  history: HistoryPoint[],
+  t: number,
+  lagKroessbach: number,
+  lagPuig: number,
+  maxAgeMs?: number,
+) {
+  const krTime = t - lagKroessbach * 60 * 1000;
+  const puigTime = t - lagPuig * 60 * 1000;
+  const kroessbach =
+    maxAgeMs === undefined
+      ? latestAt(history, krTime, "kroessbach")
+      : latestAtWithAge(history, krTime, "kroessbach", maxAgeMs);
+  const puig =
+    maxAgeMs === undefined
+      ? latestAt(history, puigTime, "puig")
+      : latestAtWithAge(history, puigTime, "puig", maxAgeMs);
+
+  return {
+    kroessbach,
+    puig,
+    value:
+      kroessbach === null && puig === null ? null : (kroessbach ?? 0) + (puig ?? 0),
+  };
+}
+
+function pearsonCorrelation(pairs: { x: number; y: number }[]) {
+  if (pairs.length < 3) return null;
+  const meanX = pairs.reduce((sum, pair) => sum + pair.x, 0) / pairs.length;
+  const meanY = pairs.reduce((sum, pair) => sum + pair.y, 0) / pairs.length;
+  const parts = pairs.reduce(
+    (acc, pair) => {
+      const dx = pair.x - meanX;
+      const dy = pair.y - meanY;
+      return {
+        numerator: acc.numerator + dx * dy,
+        xSquares: acc.xSquares + dx * dx,
+        ySquares: acc.ySquares + dy * dy,
+      };
+    },
+    { numerator: 0, xSquares: 0, ySquares: 0 },
+  );
+  const denominator = Math.sqrt(parts.xSquares * parts.ySquares);
+  if (denominator === 0) return null;
+  return parts.numerator / denominator;
+}
+
+function runtimeComparisonSummary(
+  history: HistoryPoint[],
+  settings: ForecastSettings,
+  timeDomain: TimeDomain,
+): RuntimeComparisonSummary {
+  const maxAgeMs = sampleInterval * 3;
+  const points = history
+    .filter(
+      (point) =>
+        point.t >= timeDomain.min &&
+        point.t <= timeDomain.max &&
+        point.reichenau !== null,
+    )
+    .map((point) => {
+      const shifted = shiftedUpstreamAt(
+        history,
+        point.t,
+        settings.lagKroessbach,
+        settings.lagPuig,
+        maxAgeMs,
+      );
+      if (shifted.value === null) return null;
+      return {
+        t: point.t,
+        expected: shifted.value,
+        measured: point.reichenau ?? 0,
+        delta: (point.reichenau ?? 0) - shifted.value,
+        kroessbach: shifted.kroessbach,
+        puig: shifted.puig,
+      };
+    })
+    .filter((point): point is RuntimeComparisonPoint => point !== null);
+
+  if (!points.length) {
+    return {
+      count: 0,
+      correlation: null,
+      kroessbachCorrelation: null,
+      puigCorrelation: null,
+      meanDelta: null,
+      meanAbsoluteDelta: null,
+      latest: null,
+    };
+  }
+
+  const meanDelta =
+    points.reduce((sum, point) => sum + point.delta, 0) / points.length;
+  const meanAbsoluteDelta =
+    points.reduce((sum, point) => sum + Math.abs(point.delta), 0) / points.length;
+
+  return {
+    count: points.length,
+    correlation: pearsonCorrelation(
+      points.map((point) => ({ x: point.expected, y: point.measured })),
+    ),
+    kroessbachCorrelation: pearsonCorrelation(
+      points
+        .filter((point) => point.kroessbach !== null)
+        .map((point) => ({ x: point.kroessbach ?? 0, y: point.measured })),
+    ),
+    puigCorrelation: pearsonCorrelation(
+      points
+        .filter((point) => point.puig !== null)
+        .map((point) => ({ x: point.puig ?? 0, y: point.measured })),
+    ),
+    meanDelta,
+    meanAbsoluteDelta,
+    latest: points[points.length - 1],
+  };
 }
 
 export default function Home() {
@@ -944,6 +1102,8 @@ export default function Home() {
     forecastLine,
     forecastHistory,
     forecastSettings.waveOffset,
+    forecastSettings.lagKroessbach,
+    forecastSettings.lagPuig,
   );
   const waveTime = mostRecent ?? forecastHistory[forecastHistory.length - 1]?.t ?? nowMs;
   const lastMeasurementTime = newestHistoryPoint ?? waveTime;
@@ -961,7 +1121,13 @@ export default function Home() {
   const reichenauEquivalentTime = waveTime + forecastSettings.waveOffset * 60 * 1000;
   const expectedReichenauAtWave =
     valueAt(forecastLine, reichenauEquivalentTime) ?? downstreamFlow;
-  const upstreamAtWave = upstreamAt(forecastHistory, waveTime) ?? upstreamFlow;
+  const upstreamAtWave =
+    shiftedUpstreamAt(
+      forecastHistory,
+      waveTime,
+      Math.max(0, forecastSettings.lagKroessbach - forecastSettings.waveOffset),
+      Math.max(0, forecastSettings.lagPuig - forecastSettings.waveOffset),
+    ).value ?? upstreamFlow;
   const expectedWaveDelta = expectedReichenauAtWave - upstreamAtWave;
   const levelAtWave =
     latestAt(forecastHistory, waveTime, "reichenauLevel") ??
@@ -992,7 +1158,15 @@ export default function Home() {
         point.value !== null && point.t >= waveTime && point.t <= horizonEnd,
     )
     .map((point) => {
-      const upstream = upstreamAt(forecastHistory, point.t) ?? upstreamAtWave;
+      const upstream =
+        shiftedUpstreamAt(
+          forecastHistory,
+          point.t,
+          Math.max(0, forecastSettings.lagKroessbach - forecastSettings.waveOffset),
+          Math.max(0, forecastSettings.lagPuig - forecastSettings.waveOffset),
+        ).value ??
+        valueAt(forecastLine, point.t + forecastSettings.waveOffset * 60 * 1000) ??
+        upstreamAtWave;
       const level = latestAt(forecastHistory, point.t, "reichenauLevel") ?? levelAtWave;
       const modelScore = waveQualityScore(
         point.value,
@@ -1022,6 +1196,11 @@ export default function Home() {
       observation.kroessbachDischarge !== null ||
       observation.puigDischarge !== null,
   ).length;
+  const runtimeComparison = runtimeComparisonSummary(
+    forecastHistory,
+    forecastSettings,
+    chartTimeDomain,
+  );
   const forecastArrivalKroessbach =
     (kr?.discharge.dt ?? mostRecent ?? nowMs) +
     forecastSettings.lagKroessbach * 60 * 1000;
@@ -1449,6 +1628,7 @@ export default function Home() {
           {kr?.waveRuntime ?? "Krössbach Laufzeit n/a"} ·{" "}
           {puig?.waveRuntime ?? "Puig Laufzeit n/a"}
         </p>
+        <RuntimeCorrelationPanel summary={runtimeComparison} />
       </section>
 
       <section className="archive-section">
@@ -1705,6 +1885,67 @@ function WaveQualityCard({
         </div>
       </dl>
     </article>
+  );
+}
+
+function RuntimeCorrelationPanel({
+  summary,
+}: {
+  summary: RuntimeComparisonSummary;
+}) {
+  return (
+    <section className="runtime-correlation">
+      <div className="runtime-correlation-head">
+        <div>
+          <p>Laufzeit-Check <span className="beta-badge">BETA</span></p>
+          <h3>Erwarteter Zufluss gegen Reichenau gemessen</h3>
+        </div>
+        <strong>{summary.count} Vergleiche</strong>
+      </div>
+      <div className="runtime-correlation-grid">
+        <article>
+          <span>Korrelation Summe</span>
+          <strong>{formatCorrelation(summary.correlation)}</strong>
+          <small>1,00 wäre sehr ähnlich; 0,00 kein lineares Muster.</small>
+        </article>
+        <article>
+          <span>Ø Abweichung</span>
+          <strong>{formatNumber(summary.meanAbsoluteDelta, 2)} m³/s</strong>
+          <small>mittlerer Abstand zwischen Erwartung und Messung.</small>
+        </article>
+        <article>
+          <span>Ø Delta</span>
+          <strong>{formatSignedNumber(summary.meanDelta, 2)} m³/s</strong>
+          <small>positiv heißt Reichenau kam höher als erwartet.</small>
+        </article>
+        <article>
+          <span>Letzter Vergleich</span>
+          <strong>
+            {summary.latest
+              ? `${formatNumber(summary.latest.expected, 2)} → ${formatNumber(
+                  summary.latest.measured,
+                  2,
+                )}`
+              : "n/a"}
+          </strong>
+          <small>erwartet aus Laufzeit → tatsächlich Reichenau.</small>
+        </article>
+      </div>
+      <dl>
+        <div>
+          <dt>Krössbach einzeln</dt>
+          <dd>{formatCorrelation(summary.kroessbachCorrelation)}</dd>
+        </div>
+        <div>
+          <dt>Puig einzeln</dt>
+          <dd>{formatCorrelation(summary.puigCorrelation)}</dd>
+        </div>
+        <div>
+          <dt>Lernwerte Spotinfos</dt>
+          <dd>noch nicht automatisch gewichtet</dd>
+        </div>
+      </dl>
+    </section>
   );
 }
 
