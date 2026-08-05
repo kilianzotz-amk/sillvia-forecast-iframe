@@ -180,7 +180,7 @@ export async function createSurfObservation(input: CreateSurfObservation) {
 
 export async function getRecentSurfObservations(hours = 72) {
   const db = getD1();
-  const safeHours = Math.min(24 * 30, Math.max(1, Math.round(hours)));
+  const safeHours = Math.min(24 * 365, Math.max(1, Math.round(hours)));
   const since = Date.now() - safeHours * 60 * 60 * 1000;
   const result = await db
     .prepare(

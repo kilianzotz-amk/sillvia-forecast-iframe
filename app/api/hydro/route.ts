@@ -1,7 +1,11 @@
 import { getRecentHydroHistory, storeHydroPayload } from "@/db/hydro-history";
 import { fetchHydroPayload } from "@/lib/hydro";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const hours = Number(url.searchParams.get("hours") ?? "72");
+  const safeHours = Math.min(365 * 24, Math.max(1, Math.round(hours)));
+
   try {
     const payload = await fetchHydroPayload();
 
@@ -12,7 +16,7 @@ export async function GET() {
     }
 
     try {
-      const history = await getRecentHydroHistory();
+      const history = await getRecentHydroHistory(safeHours);
       return Response.json({
         ...payload,
         history,

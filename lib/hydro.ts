@@ -156,7 +156,7 @@ export function historyPointFromPayload(payload: HydroPayload): HistoryPoint | n
   return point;
 }
 
-export function compactHistory(points: HistoryPoint[]) {
+export function compactHistory(points: HistoryPoint[], maxPoints = 5000) {
   const sorted = [...points].sort((a, b) => a.t - b.t);
   const compacted: HistoryPoint[] = [];
 
@@ -169,7 +169,7 @@ export function compactHistory(points: HistoryPoint[]) {
     }
   }
 
-  return compacted.slice(-288);
+  return compacted.slice(-maxPoints);
 }
 
 export async function fetchHydroPayload(): Promise<HydroPayload> {

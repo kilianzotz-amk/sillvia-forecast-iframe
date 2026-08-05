@@ -970,6 +970,77 @@ h3 {
   padding: 16px;
 }
 
+.review-control {
+  display: grid;
+  gap: 10px;
+}
+
+.review-control > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.review-presets {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.review-presets button {
+  background: #eef5f5;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 850;
+  min-height: 36px;
+  padding: 0 8px;
+}
+
+.review-presets button.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+
+.date-range {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.date-range label {
+  display: grid;
+  gap: 5px;
+}
+
+.date-range span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.date-range input {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  min-height: 38px;
+  min-width: 0;
+  padding: 0 8px;
+  width: 100%;
+}
+
+.review-control p {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
 .runtime-control {
   display: grid;
   gap: 6px;

@@ -91,27 +91,47 @@ type ForecastSettings = {
   lagKroessbach: number;
   lagPuig: number;
   waveOffset: number;
-  chartWindowHours: number;
   surfMin: number;
   surfMax: number;
   levelMin: number;
   levelMax: number;
 };
 
+type ReviewPreset = "24h" | "week" | "month" | "all" | "custom";
+
+type ReviewRange = {
+  preset: ReviewPreset;
+  fromDate: string;
+  toDate: string;
+};
+
 const stationOrder = ["202283", "201574", "201624"];
 const historyStorageKey = "sill-surf-forecast-history-v1";
 const settingsStorageKey = "sill-surf-forecast-settings-v1";
+const reviewRangeStorageKey = "sill-surf-review-range-v1";
 const sampleInterval = 15 * 60 * 1000;
+const dayMs = 24 * 60 * 60 * 1000;
 const defaultForecastSettings: ForecastSettings = {
   lagKroessbach: 115,
   lagPuig: 90,
   waveOffset: 10,
-  chartWindowHours: 24,
   surfMin: 14,
   surfMax: 22,
   levelMin: 240,
   levelMax: 285,
 };
+const defaultReviewRange: ReviewRange = {
+  preset: "24h",
+  fromDate: "",
+  toDate: "",
+};
+const reviewPresets: { id: ReviewPreset; label: string }[] = [
+  { id: "24h", label: "24 h" },
+  { id: "week", label: "Letzte Woche" },
+  { id: "month", label: "Letzter Monat" },
+  { id: "all", label: "Alle Daten" },
+  { id: "custom", label: "Datum" },
+];
 
 const fallbackPayload: HydroPayload = {
   fetchedAt: new Date().toISOString(),
@@ -237,6 +257,16 @@ function formatDateTimeInput(value: number) {
 function parseDateTimeInput(value: string) {
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function parseStartDate(value: string) {
+  const parsed = new Date(`${value}T00:00`).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseEndDate(value: string) {
+  const parsed = new Date(`${value}T23:59:59`).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatAxisTime(value: number, span: number) {
@@ -441,7 +471,7 @@ function readStoredHistory() {
   }
 }
 
-function compactHistory(points: HistoryPoint[]) {
+function compactHistory(points: HistoryPoint[], maxPoints = 5000) {
   const sorted = [...points].sort((a, b) => a.t - b.t);
   const compacted: HistoryPoint[] = [];
 
@@ -454,7 +484,27 @@ function compactHistory(points: HistoryPoint[]) {
     }
   }
 
-  return compacted.slice(-288);
+  return compacted.slice(-maxPoints);
+}
+
+function readStoredReviewRange() {
+  if (typeof window === "undefined") return defaultReviewRange;
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(reviewRangeStorageKey) ?? "{}",
+    );
+    const preset = reviewPresets.some((item) => item.id === parsed.preset)
+      ? (parsed.preset as ReviewPreset)
+      : defaultReviewRange.preset;
+
+    return {
+      preset,
+      fromDate: typeof parsed.fromDate === "string" ? parsed.fromDate : "",
+      toDate: typeof parsed.toDate === "string" ? parsed.toDate : "",
+    };
+  } catch {
+    return defaultReviewRange;
+  }
 }
 
 function readStoredSettings() {
@@ -476,10 +526,6 @@ function readStoredSettings() {
         Number.isFinite(parsed.waveOffset) && parsed.waveOffset >= 0
           ? Number(parsed.waveOffset)
           : defaultForecastSettings.waveOffset,
-      chartWindowHours:
-        Number.isFinite(parsed.chartWindowHours) && parsed.chartWindowHours >= 1
-          ? Number(parsed.chartWindowHours)
-          : defaultForecastSettings.chartWindowHours,
       surfMin:
         Number.isFinite(parsed.surfMin) && parsed.surfMin >= 0
           ? Number(parsed.surfMin)
@@ -524,6 +570,52 @@ function shiftedForecast(
 
     return { t, value };
   });
+}
+
+function reviewRangeToDomain(
+  range: ReviewRange,
+  history: HistoryPoint[],
+  referenceTime: number,
+) {
+  const newest = history[history.length - 1]?.t ?? referenceTime;
+  const oldest = history[0]?.t ?? newest - dayMs;
+  const max = Math.max(newest + sampleInterval, referenceTime);
+
+  if (range.preset === "week") {
+    return { min: max - 7 * dayMs, max };
+  }
+  if (range.preset === "month") {
+    return { min: max - 30 * dayMs, max };
+  }
+  if (range.preset === "all") {
+    return { min: oldest, max };
+  }
+  if (range.preset === "custom") {
+    const from = parseStartDate(range.fromDate);
+    const to = parseEndDate(range.toDate);
+    if (from !== null && to !== null) return { min: Math.min(from, to), max: Math.max(from, to) };
+    if (from !== null) return { min: from, max: from + dayMs };
+    if (to !== null) return { min: to - dayMs, max: to };
+  }
+
+  return { min: max - dayMs, max };
+}
+
+function reviewRangeHours(range: ReviewRange) {
+  if (range.preset === "week") return 7 * 24;
+  if (range.preset === "month") return 30 * 24;
+  if (range.preset === "all") return 365 * 24;
+  if (range.preset === "custom") {
+    const from = parseStartDate(range.fromDate);
+    const to = parseEndDate(range.toDate);
+    const earliest = from ?? to ?? Date.now() - dayMs;
+    return Math.min(
+      365 * 24,
+      Math.max(24, Math.ceil((Date.now() - earliest) / (60 * 60 * 1000)) + 24),
+    );
+  }
+
+  return 24;
 }
 
 function upstreamAt(history: HistoryPoint[], t: number) {
@@ -603,6 +695,9 @@ export default function Home() {
   const [forecastSettings, setForecastSettings] = useState<ForecastSettings>(() =>
     readStoredSettings(),
   );
+  const [reviewRange, setReviewRange] = useState<ReviewRange>(() =>
+    readStoredReviewRange(),
+  );
   const [observations, setObservations] = useState<SurfObservation[]>([]);
   const [observationForm, setObservationForm] = useState(() => ({
     observedAt: formatDateTimeInput(Date.now()),
@@ -627,11 +722,14 @@ export default function Home() {
     });
   }
 
-  async function refresh() {
+  async function refresh(historyHours = reviewRangeHours(reviewRange)) {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/hydro", { cache: "no-store" });
+      const response = await fetch(
+        `/api/hydro?hours=${Math.ceil(historyHours)}`,
+        { cache: "no-store" },
+      );
       if (!response.ok) throw new Error("Daten konnten nicht geladen werden");
       const nextPayload = (await response.json()) as HydroPayload;
       const orderedPayload = {
@@ -651,7 +749,7 @@ export default function Home() {
       } else {
         recordHistory(orderedPayload);
       }
-      void refreshObservations();
+      void refreshObservations(historyHours);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unbekannter Fehler");
     } finally {
@@ -659,11 +757,12 @@ export default function Home() {
     }
   }
 
-  async function refreshObservations() {
+  async function refreshObservations(historyHours = reviewRangeHours(reviewRange)) {
     try {
-      const response = await fetch("/api/surf-observations?hours=72", {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/surf-observations?hours=${Math.ceil(Math.max(72, historyHours))}`,
+        { cache: "no-store" },
+      );
       if (!response.ok) throw new Error("Beobachtungen nicht verfügbar");
       const data = (await response.json()) as {
         observations?: SurfObservation[];
@@ -749,8 +848,9 @@ export default function Home() {
   }
 
   useEffect(() => {
+    const historyHours = reviewRangeHours(reviewRange);
     const runRefresh = () => {
-      void refresh();
+      void refresh(historyHours);
     };
     const startup = window.setTimeout(runRefresh, 0);
     const timer = window.setInterval(runRefresh, sampleInterval);
@@ -759,7 +859,7 @@ export default function Home() {
       window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reviewRange.preset, reviewRange.fromDate, reviewRange.toDate]);
 
   const stationsById = useMemo(
     () => Object.fromEntries(payload.stations.map((station) => [station.id, station])),
@@ -777,6 +877,13 @@ export default function Home() {
     );
   }, [forecastSettings]);
 
+  useEffect(() => {
+    window.localStorage.setItem(
+      reviewRangeStorageKey,
+      JSON.stringify(reviewRange),
+    );
+  }, [reviewRange]);
+
   const upstreamFlow =
     (kr?.discharge.value ?? 0) + (puig?.discharge.value ?? 0);
   const downstreamFlow = reichenau?.discharge.value ?? 0;
@@ -789,7 +896,6 @@ export default function Home() {
   const forecastHistory = history.length
     ? history
     : compactHistory([historyPointFromPayload(payload)].filter(Boolean) as HistoryPoint[]);
-  const oldestHistoryPoint = forecastHistory[0]?.t;
   const newestHistoryPoint = forecastHistory[forecastHistory.length - 1]?.t;
   const forecastLine = shiftedForecast(
     forecastHistory,
@@ -804,13 +910,17 @@ export default function Home() {
   );
   const waveTime = mostRecent ?? forecastHistory[forecastHistory.length - 1]?.t ?? nowMs;
   const lastMeasurementTime = newestHistoryPoint ?? waveTime;
-  const chartTimeDomain = {
-    min: lastMeasurementTime - forecastSettings.chartWindowHours * 60 * 60 * 1000,
-    max: Math.max(
+  const chartTimeDomain = reviewRangeToDomain(
+    reviewRange,
+    forecastHistory,
+    Math.max(
       forecastLine[forecastLine.length - 1]?.t ?? lastMeasurementTime,
       lastMeasurementTime + sampleInterval,
     ),
-  };
+  );
+  const visibleHistoryPoints = forecastHistory.filter(
+    (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
+  );
   const reichenauEquivalentTime = waveTime + forecastSettings.waveOffset * 60 * 1000;
   const expectedReichenauAtWave =
     valueAt(forecastLine, reichenauEquivalentTime) ?? downstreamFlow;
@@ -1149,19 +1259,13 @@ export default function Home() {
           </div>
 
           <aside className="forecast-controls" aria-label="Forecast Einstellungen">
-            <RuntimeControl
-              label="Rückblick"
-              value={forecastSettings.chartWindowHours}
-              min={1}
-              max={72}
-              step={1}
-              unit="h"
-              onChange={(chartWindowHours) =>
-                setForecastSettings((settings) => ({
-                  ...settings,
-                  chartWindowHours,
-                }))
-              }
+            <ReviewRangeControl
+              range={reviewRange}
+              historyCount={visibleHistoryPoints.length}
+              totalHistoryCount={forecastHistory.length}
+              fromLabel={formatDate(chartTimeDomain.min)}
+              toLabel={formatDate(chartTimeDomain.max)}
+              onChange={setReviewRange}
             />
             <RuntimeControl
               label="Krössbach → Reichenau"
@@ -1320,14 +1424,14 @@ export default function Home() {
           <div>
             <span>Chartbereich</span>
             <strong>
-              {oldestHistoryPoint && newestHistoryPoint
-                ? `${formatDate(oldestHistoryPoint)} - ${formatDate(newestHistoryPoint)}`
+              {visibleHistoryPoints.length
+                ? `${formatDate(chartTimeDomain.min)} - ${formatDate(chartTimeDomain.max)}`
                 : "noch keine Historie"}
             </strong>
           </div>
           <div>
             <span>Aktuelle Zeitpunkte</span>
-            <strong>{forecastHistory.length}</strong>
+            <strong>{visibleHistoryPoints.length}</strong>
           </div>
           <div className="archive-actions" aria-label="CSV Archiv herunterladen">
             <a href="/api/history?days=2&format=csv" download>
@@ -1910,6 +2014,78 @@ function linePath(
       return `${command} ${x(point.t).toFixed(1)} ${y(point.value ?? 0).toFixed(1)}`;
     })
     .join(" ");
+}
+
+function ReviewRangeControl({
+  range,
+  historyCount,
+  totalHistoryCount,
+  fromLabel,
+  toLabel,
+  onChange,
+}: {
+  range: ReviewRange;
+  historyCount: number;
+  totalHistoryCount: number;
+  fromLabel: string;
+  toLabel: string;
+  onChange: (range: ReviewRange) => void;
+}) {
+  return (
+    <div className="review-control">
+      <span>Rückblick</span>
+      <div className="review-presets" role="group" aria-label="Rückblick wählen">
+        {reviewPresets.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            className={range.preset === preset.id ? "active" : ""}
+            onClick={() =>
+              onChange({
+                ...range,
+                preset: preset.id,
+              })
+            }
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+      <div className="date-range">
+        <label>
+          <span>Von</span>
+          <input
+            type="date"
+            value={range.fromDate}
+            onChange={(event) =>
+              onChange({
+                ...range,
+                preset: "custom",
+                fromDate: event.target.value,
+              })
+            }
+          />
+        </label>
+        <label>
+          <span>Bis</span>
+          <input
+            type="date"
+            value={range.toDate}
+            onChange={(event) =>
+              onChange({
+                ...range,
+                preset: "custom",
+                toDate: event.target.value,
+              })
+            }
+          />
+        </label>
+      </div>
+      <p>
+        {historyCount} von {totalHistoryCount} Punkten · {fromLabel} bis {toLabel}
+      </p>
+    </div>
+  );
 }
 
 function RuntimeControl({

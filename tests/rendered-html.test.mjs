@@ -28,4 +28,5 @@ test("keeps required API routes and database migrations", async () => {
   assert.ok(apiRoutes.includes("hydro/route.ts"));
   assert.ok(apiRoutes.includes("surf-observations/route.ts"));
   assert.ok(migrations.some((file) => file.endsWith(".sql")));
+  assert.ok(migrations.includes("0004_backfill_surfinn_sessions.sql"));
 });
