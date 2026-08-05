@@ -1,0 +1,1 @@
+ALTER TABLE `surf_observations` ADD `trim_cm` real;

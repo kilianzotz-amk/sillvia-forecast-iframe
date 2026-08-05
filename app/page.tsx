@@ -1,0 +1,2025 @@
+"use client";
+
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+
+type HydroValue = {
+  value: number | null;
+  unit: string;
+  dt: number | null;
+  classification?: string;
+  tendency?: number;
+};
+
+type HydroStation = {
+  id: string;
+  shortName: string;
+  name: string;
+  river: string;
+  role: string;
+  altitude: number | null;
+  waveRuntime?: string | null;
+  latlng: [number, number] | null;
+  water: HydroValue;
+  discharge: HydroValue;
+  thresholds: {
+    hw1: HydroValue;
+    hw30: HydroValue;
+  };
+  statistics: {
+    hhq: HydroValue;
+    nnq: HydroValue;
+    nqt: HydroValue;
+  };
+};
+
+type HydroPayload = {
+  fetchedAt: string;
+  source: string;
+  stations: HydroStation[];
+  history?: HistoryPoint[];
+  historySource?: "database" | "local";
+  collector?: {
+    ok: boolean;
+    collectedAt?: string;
+    writes?: number;
+    error?: string;
+  };
+};
+
+type HistoryPoint = {
+  t: number;
+  kroessbach: number | null;
+  puig: number | null;
+  reichenau: number | null;
+  kroessbachLevel: number | null;
+  puigLevel: number | null;
+  reichenauLevel: number | null;
+};
+
+type SurfObservation = {
+  id: number;
+  observedAt: number;
+  createdAt: number;
+  trim: string;
+  trimCm: number | null;
+  quality: number;
+  contextMeasuredAt: number | null;
+  kroessbachDischarge: number | null;
+  puigDischarge: number | null;
+  reichenauDischarge: number | null;
+  kroessbachLevel: number | null;
+  puigLevel: number | null;
+  reichenauLevel: number | null;
+  note: string | null;
+  createdBy: string | null;
+};
+
+type ManualQualitySignal = {
+  score: number;
+  quality: number;
+  trim: string;
+  trimCm: number | null;
+  observedAt: number;
+};
+
+type TimeDomain = {
+  min: number;
+  max: number;
+};
+
+type ForecastSettings = {
+  lagKroessbach: number;
+  lagPuig: number;
+  waveOffset: number;
+  chartWindowHours: number;
+  surfMin: number;
+  surfMax: number;
+  levelMin: number;
+  levelMax: number;
+};
+
+const stationOrder = ["202283", "201574", "201624"];
+const historyStorageKey = "sill-surf-forecast-history-v1";
+const settingsStorageKey = "sill-surf-forecast-settings-v1";
+const sampleInterval = 15 * 60 * 1000;
+const defaultForecastSettings: ForecastSettings = {
+  lagKroessbach: 115,
+  lagPuig: 90,
+  waveOffset: 10,
+  chartWindowHours: 24,
+  surfMin: 14,
+  surfMax: 22,
+  levelMin: 240,
+  levelMax: 285,
+};
+
+const fallbackPayload: HydroPayload = {
+  fetchedAt: new Date().toISOString(),
+  source: "Hydro Online Tirol",
+  stations: [
+    {
+      id: "202283",
+      shortName: "Krössbach",
+      name: "Krössbach",
+      river: "Ruetz",
+      role: "Zufluss aus dem Stubaital",
+      altitude: 1086,
+      waveRuntime:
+        "Laufzeit der Hochwasserwelle bis zum Pegel Reichenau: 1,25-2,5 Stunden; Fließstrecke 29,9 km",
+      latlng: [47.080286341504, 11.266120553361],
+      water: {
+        value: 107.1,
+        unit: "cm",
+        dt: 1785844800000,
+        classification: ">MW",
+        tendency: 2,
+      },
+      discharge: { value: 13.526, unit: "m3/s", dt: 1785844800000 },
+      thresholds: {
+        hw1: { value: 157.091, unit: "cm", dt: 1785884400000 },
+        hw30: { value: 234.543, unit: "cm", dt: 1785884400000 },
+      },
+      statistics: {
+        hhq: { value: 115, unit: "m3/s", dt: 677113200000 },
+        nnq: { value: 0.067, unit: "m3/s", dt: 1329778800000 },
+        nqt: { value: 0.196, unit: "m3/s", dt: 698454000000 },
+      },
+    },
+    {
+      id: "201574",
+      shortName: "Puig",
+      name: "Puig (Matrei am Brenner)",
+      river: "Sill",
+      role: "Oberlieger an der Sill",
+      altitude: 1005,
+      waveRuntime:
+        "Laufzeit der Hochwasserwelle bis zum Pegel Reichenau: 1-2 Stunden; Fließstrecke 24,3 km",
+      latlng: [47.1130710390252, 11.4523841611937],
+      water: {
+        value: 101.5,
+        unit: "cm",
+        dt: 1785844800000,
+        classification: "niedrig",
+        tendency: 0,
+      },
+      discharge: { value: 5.704, unit: "m3/s", dt: 1785844800000 },
+      thresholds: {
+        hw1: { value: 203.506, unit: "cm", dt: 1785884400000 },
+        hw30: { value: 279.919, unit: "cm", dt: 1785884400000 },
+      },
+      statistics: {
+        hhq: { value: 127, unit: "m3/s", dt: 867452400000 },
+        nnq: { value: 1.7, unit: "m3/s", dt: -498790800000 },
+        nqt: { value: 1.87, unit: "m3/s", dt: -498963600000 },
+      },
+    },
+    {
+      id: "201624",
+      shortName: "Reichenau",
+      name: "Innsbruck Reichenau",
+      river: "Sill",
+      role: "Unterlieger nach Zusammenfluss",
+      altitude: 567,
+      waveRuntime: null,
+      latlng: [47.2728990628016, 11.4115312552712],
+      water: {
+        value: 274.7,
+        unit: "cm",
+        dt: 1785844800000,
+        classification: "niedrig",
+        tendency: -1,
+      },
+      discharge: { value: 15.661, unit: "m3/s", dt: 1785844800000 },
+      thresholds: {
+        hw1: { value: 395.785, unit: "cm", dt: 1785884400000 },
+        hw30: { value: 532.772, unit: "cm", dt: 1785884400000 },
+      },
+      statistics: {
+        hhq: { value: 358, unit: "m3/s", dt: 492130800000 },
+        nnq: { value: 0.561, unit: "m3/s", dt: 288313200000 },
+        nqt: { value: 4, unit: "m3/s", dt: -504061200000 },
+      },
+    },
+  ],
+};
+
+function formatNumber(value: number | null, digits = 1) {
+  if (value === null || Number.isNaN(value)) return "n/a";
+  return new Intl.NumberFormat("de-AT", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: digits,
+  }).format(value);
+}
+
+function formatDate(value: string | number | null) {
+  if (!value) return "n/a";
+  return new Intl.DateTimeFormat("de-AT", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Europe/Vienna",
+  }).format(new Date(value));
+}
+
+function formatTime(value: number) {
+  return new Intl.DateTimeFormat("de-AT", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Vienna",
+  }).format(new Date(value));
+}
+
+function formatDateTimeInput(value: number) {
+  const date = new Date(value);
+  const localTime = value - date.getTimezoneOffset() * 60 * 1000;
+  return new Date(localTime).toISOString().slice(0, 16);
+}
+
+function parseDateTimeInput(value: string) {
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function formatAxisTime(value: number, span: number) {
+  if (span <= 30 * 60 * 60 * 1000) return formatTime(value);
+  return new Intl.DateTimeFormat("de-AT", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Vienna",
+  }).format(new Date(value));
+}
+
+function formatUnit(unit: string) {
+  return unit.replace("m3/s", "m³/s");
+}
+
+function formatTrimCm(value: number | null, fallback: string) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `${formatNumber(value, value % 1 === 0 ? 0 : 1)} cm`;
+  }
+
+  return fallback || "n/a";
+}
+
+function formatTriple(
+  kroessbach: number | null,
+  puig: number | null,
+  reichenau: number | null,
+  digits: number,
+) {
+  return `${formatNumber(kroessbach, digits)} / ${formatNumber(
+    puig,
+    digits,
+  )} / ${formatNumber(reichenau, digits)}`;
+}
+
+function tendencyLabel(tendency?: number) {
+  if (tendency === undefined) return "stabil";
+  if (tendency > 0) return "steigend";
+  if (tendency < 0) return "fallend";
+  return "stabil";
+}
+
+function pct(value: number | null, target: number | null) {
+  if (value === null || target === null || target <= 0) return 0;
+  return Math.min(100, Math.max(0, (value / target) * 100));
+}
+
+function clamp(value: number, min = 0, max = 100) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function qualityLabel(score: number) {
+  if (score >= 75) return "gut";
+  if (score >= 50) return "okay";
+  if (score >= 30) return "kritisch";
+  return "schwach";
+}
+
+function qualityTone(score: number) {
+  if (score >= 75) return "good";
+  if (score >= 50) return "ok";
+  return "bad";
+}
+
+function waveQualityScore(
+  delta: number,
+  upstream: number,
+  level: number | null,
+  surfMin: number,
+  surfMax: number,
+  levelMin: number,
+  levelMax: number,
+) {
+  const sortedMin = Math.min(surfMin, surfMax);
+  const sortedMax = Math.max(surfMin, surfMax);
+  const sortedLevelMin = Math.min(levelMin, levelMax);
+  const sortedLevelMax = Math.max(levelMin, levelMax);
+  const deltaScore = clamp(55 + delta * 14);
+  const upstreamPressure =
+    sortedMax <= sortedMin
+      ? upstream / Math.max(1, sortedMax)
+      : (upstream - sortedMin) / Math.max(1, sortedMax - sortedMin);
+  const upstreamScore = clamp(100 - clamp(upstreamPressure, 0, 1.4) * 70);
+  const levelScore =
+    level === null
+      ? 82
+      : level > sortedLevelMax
+        ? clamp(100 - ((level - sortedLevelMax) / Math.max(1, sortedLevelMax - sortedLevelMin)) * 90)
+        : level < sortedLevelMin
+          ? clamp(78 - ((sortedLevelMin - level) / Math.max(1, sortedLevelMin)) * 25)
+          : 100;
+
+  return Math.round(clamp(deltaScore * 0.56 + upstreamScore * 0.24 + levelScore * 0.2));
+}
+
+function observationScore(quality: number) {
+  return clamp(quality * 20);
+}
+
+function recentManualSignal(
+  observations: SurfObservation[],
+  referenceTime: number,
+): ManualQualitySignal | null {
+  const latest = observations
+    .filter(
+      (observation) =>
+        observation.observedAt <= referenceTime &&
+        referenceTime - observation.observedAt <= 6 * 60 * 60 * 1000,
+    )
+    .sort((a, b) => b.observedAt - a.observedAt)[0];
+
+  if (!latest) return null;
+  return {
+    score: observationScore(latest.quality),
+    quality: latest.quality,
+    trim: latest.trim,
+    trimCm: latest.trimCm,
+    observedAt: latest.observedAt,
+  };
+}
+
+function blendManualQuality(
+  modelScore: number,
+  signal: ManualQualitySignal | null,
+  referenceTime: number,
+) {
+  if (!signal) return modelScore;
+  const ageHours = Math.max(0, referenceTime - signal.observedAt) / (60 * 60 * 1000);
+  const weight = ageHours <= 1 ? 0.35 : ageHours <= 3 ? 0.25 : 0.15;
+  return Math.round(clamp(modelScore * (1 - weight) + signal.score * weight));
+}
+
+function statusTone(station: HydroStation) {
+  const classification = station.water.classification?.toLowerCase() ?? "";
+  if (classification.includes("hw30")) return "danger";
+  if (classification.includes("hw") || classification.includes(">mw")) return "watch";
+  if (classification.includes("niedrig")) return "low";
+  return "normal";
+}
+
+function valueOrNull(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function timeFromStations(stations: HydroStation[]) {
+  return (
+    stations
+      .flatMap((station) => [station.discharge.dt, station.water.dt])
+      .filter((value): value is number => typeof value === "number")
+      .sort((a, b) => b - a)[0] ?? Date.now()
+  );
+}
+
+function historyPointFromPayload(payload: HydroPayload): HistoryPoint | null {
+  const stations = Object.fromEntries(
+    payload.stations.map((station) => [station.id, station]),
+  );
+  const point = {
+    t: timeFromStations(payload.stations),
+    kroessbach: valueOrNull(stations["202283"]?.discharge.value),
+    puig: valueOrNull(stations["201574"]?.discharge.value),
+    reichenau: valueOrNull(stations["201624"]?.discharge.value),
+    kroessbachLevel: valueOrNull(stations["202283"]?.water.value),
+    puigLevel: valueOrNull(stations["201574"]?.water.value),
+    reichenauLevel: valueOrNull(stations["201624"]?.water.value),
+  };
+
+  if (
+    point.kroessbach === null &&
+    point.puig === null &&
+    point.reichenau === null &&
+    point.kroessbachLevel === null &&
+    point.puigLevel === null &&
+    point.reichenauLevel === null
+  ) {
+    return null;
+  }
+
+  return point;
+}
+
+function readStoredHistory() {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(historyStorageKey) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((point) => ({
+        t: Number(point.t),
+        kroessbach: valueOrNull(point.kroessbach),
+        puig: valueOrNull(point.puig),
+        reichenau: valueOrNull(point.reichenau),
+        kroessbachLevel: valueOrNull(point.kroessbachLevel),
+        puigLevel: valueOrNull(point.puigLevel),
+        reichenauLevel: valueOrNull(point.reichenauLevel),
+      }))
+      .filter((point) => Number.isFinite(point.t));
+  } catch {
+    return [];
+  }
+}
+
+function compactHistory(points: HistoryPoint[]) {
+  const sorted = [...points].sort((a, b) => a.t - b.t);
+  const compacted: HistoryPoint[] = [];
+
+  for (const point of sorted) {
+    const previous = compacted[compacted.length - 1];
+    if (previous && Math.abs(point.t - previous.t) < sampleInterval / 3) {
+      compacted[compacted.length - 1] = point;
+    } else {
+      compacted.push(point);
+    }
+  }
+
+  return compacted.slice(-288);
+}
+
+function readStoredSettings() {
+  if (typeof window === "undefined") return defaultForecastSettings;
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(settingsStorageKey) ?? "{}",
+    );
+    return {
+      lagKroessbach:
+        Number.isFinite(parsed.lagKroessbach) && parsed.lagKroessbach > 0
+          ? Number(parsed.lagKroessbach)
+          : defaultForecastSettings.lagKroessbach,
+      lagPuig:
+        Number.isFinite(parsed.lagPuig) && parsed.lagPuig > 0
+          ? Number(parsed.lagPuig)
+          : defaultForecastSettings.lagPuig,
+      waveOffset:
+        Number.isFinite(parsed.waveOffset) && parsed.waveOffset >= 0
+          ? Number(parsed.waveOffset)
+          : defaultForecastSettings.waveOffset,
+      chartWindowHours:
+        Number.isFinite(parsed.chartWindowHours) && parsed.chartWindowHours >= 1
+          ? Number(parsed.chartWindowHours)
+          : defaultForecastSettings.chartWindowHours,
+      surfMin:
+        Number.isFinite(parsed.surfMin) && parsed.surfMin >= 0
+          ? Number(parsed.surfMin)
+          : defaultForecastSettings.surfMin,
+      surfMax:
+        Number.isFinite(parsed.surfMax) && parsed.surfMax > 0
+          ? Number(parsed.surfMax)
+          : defaultForecastSettings.surfMax,
+      levelMin:
+        Number.isFinite(parsed.levelMin) && parsed.levelMin >= 0
+          ? Number(parsed.levelMin)
+          : defaultForecastSettings.levelMin,
+      levelMax:
+        Number.isFinite(parsed.levelMax) && parsed.levelMax > 0
+          ? Number(parsed.levelMax)
+          : defaultForecastSettings.levelMax,
+    };
+  } catch {
+    return defaultForecastSettings;
+  }
+}
+
+function shiftedForecast(
+  history: HistoryPoint[],
+  lagKroessbach: number,
+  lagPuig: number,
+  fallbackTime: number,
+) {
+  const now = history[history.length - 1]?.t ?? fallbackTime;
+  const start = Math.min(history[0]?.t ?? now, now);
+  const end = now + 6 * 60 * 60 * 1000;
+  const samples = Math.ceil((end - start) / sampleInterval) + 1;
+
+  return Array.from({ length: samples }, (_, index) => {
+    const t = start + index * sampleInterval;
+    const krSource = latestAt(history, t - lagKroessbach * 60 * 1000, "kroessbach");
+    const puigSource = latestAt(history, t - lagPuig * 60 * 1000, "puig");
+    const value =
+      krSource === null && puigSource === null
+        ? null
+        : (krSource ?? 0) + (puigSource ?? 0);
+
+    return { t, value };
+  });
+}
+
+function upstreamAt(history: HistoryPoint[], t: number) {
+  const krSource = latestAt(history, t, "kroessbach");
+  const puigSource = latestAt(history, t, "puig");
+  if (krSource === null && puigSource === null) return null;
+  return (krSource ?? 0) + (puigSource ?? 0);
+}
+
+function valueAt(
+  points: { t: number; value: number | null }[],
+  t: number,
+) {
+  const valid = points
+    .filter((point): point is { t: number; value: number } => point.value !== null)
+    .sort((a, b) => a.t - b.t);
+
+  if (!valid.length) return null;
+
+  const first = valid[0];
+  const last = valid[valid.length - 1];
+  if (t <= first.t) return first.value;
+  if (t >= last.t) return last.value;
+
+  for (let index = 1; index < valid.length; index += 1) {
+    const previous = valid[index - 1];
+    const next = valid[index];
+    if (previous.t <= t && next.t >= t) {
+      const share = (t - previous.t) / Math.max(1, next.t - previous.t);
+      return previous.value + (next.value - previous.value) * share;
+    }
+  }
+
+  return last.value;
+}
+
+function expectedDeltaSeries(
+  forecast: { t: number; value: number | null }[],
+  history: HistoryPoint[],
+  waveOffset: number,
+) {
+  const offsetMs = waveOffset * 60 * 1000;
+
+  return forecast.map((point) => {
+    const waveTime = point.t - offsetMs;
+    const upstream = upstreamAt(history, waveTime);
+
+    return {
+      t: waveTime,
+      value:
+        point.value === null || upstream === null
+          ? null
+          : point.value - upstream,
+    };
+  });
+}
+
+function latestAt(
+  history: HistoryPoint[],
+  t: number,
+  key: keyof Omit<HistoryPoint, "t">,
+) {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (history[index].t <= t) return history[index][key];
+  }
+  return null;
+}
+
+export default function Home() {
+  const [payload, setPayload] = useState<HydroPayload>(fallbackPayload);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedStation, setSelectedStation] = useState("202283");
+  const [chartType, setChartType] = useState<"W" | "Q">("W");
+  const [nowMs] = useState(() => Date.now());
+  const [history, setHistory] = useState<HistoryPoint[]>(() => readStoredHistory());
+  const [forecastSettings, setForecastSettings] = useState<ForecastSettings>(() =>
+    readStoredSettings(),
+  );
+  const [observations, setObservations] = useState<SurfObservation[]>([]);
+  const [observationForm, setObservationForm] = useState(() => ({
+    observedAt: formatDateTimeInput(Date.now()),
+    trimCm: "",
+    quality: 3,
+    note: "",
+  }));
+  const [observationSaving, setObservationSaving] = useState(false);
+  const [deletingObservationId, setDeletingObservationId] = useState<number | null>(
+    null,
+  );
+  const [observationMessage, setObservationMessage] = useState("");
+
+  function recordHistory(nextPayload: HydroPayload) {
+    const point = historyPointFromPayload(nextPayload);
+    if (!point) return;
+
+    setHistory((current) => {
+      const next = compactHistory([...current, point]);
+      window.localStorage.setItem(historyStorageKey, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  async function refresh() {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/hydro", { cache: "no-store" });
+      if (!response.ok) throw new Error("Daten konnten nicht geladen werden");
+      const nextPayload = (await response.json()) as HydroPayload;
+      const orderedPayload = {
+        ...nextPayload,
+        stations: stationOrder
+          .map((id) => nextPayload.stations.find((station) => station.id === id))
+          .filter(Boolean) as HydroStation[],
+      };
+      setPayload(orderedPayload);
+      const currentPoint = historyPointFromPayload(orderedPayload);
+      if (orderedPayload.history?.length) {
+        const nextHistory = compactHistory(
+          [...orderedPayload.history, currentPoint].filter(Boolean) as HistoryPoint[],
+        );
+        setHistory(nextHistory);
+        window.localStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
+      } else {
+        recordHistory(orderedPayload);
+      }
+      void refreshObservations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unbekannter Fehler");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshObservations() {
+    try {
+      const response = await fetch("/api/surf-observations?hours=72", {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Beobachtungen nicht verfügbar");
+      const data = (await response.json()) as {
+        observations?: SurfObservation[];
+      };
+      setObservations(data.observations ?? []);
+    } catch {
+      setObservations([]);
+    }
+  }
+
+  async function submitObservation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setObservationMessage("");
+
+    const trimCm = Number(observationForm.trimCm);
+
+    if (!Number.isFinite(trimCm) || trimCm < 0) {
+      setObservationMessage("Bitte Trim als cm-Wert eintragen.");
+      return;
+    }
+
+    setObservationSaving(true);
+    try {
+      const response = await fetch("/api/surf-observations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          observedAt: parseDateTimeInput(observationForm.observedAt),
+          trimCm,
+          quality: observationForm.quality,
+          note: observationForm.note,
+        }),
+      });
+      const data = (await response.json()) as {
+        observation?: SurfObservation;
+        error?: string;
+      };
+      if (!response.ok || !data.observation) {
+        throw new Error(data.error ?? "Speichern fehlgeschlagen");
+      }
+      setObservations((current) => [data.observation!, ...current].slice(0, 200));
+      setObservationForm((current) => ({
+        ...current,
+        observedAt: formatDateTimeInput(
+          parseDateTimeInput(current.observedAt) + 30 * 60 * 1000,
+        ),
+        note: "",
+      }));
+      setObservationMessage("Gespeichert.");
+    } catch (err) {
+      setObservationMessage(
+        err instanceof Error ? err.message : "Speichern fehlgeschlagen",
+      );
+    } finally {
+      setObservationSaving(false);
+    }
+  }
+
+  async function deleteObservation(id: number) {
+    if (!window.confirm("Diesen Sessionwert wirklich löschen?")) return;
+
+    setObservationMessage("");
+    setDeletingObservationId(id);
+    try {
+      const response = await fetch(`/api/surf-observations?id=${id}`, {
+        method: "DELETE",
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "Löschen fehlgeschlagen");
+      }
+      setObservations((current) =>
+        current.filter((observation) => observation.id !== id),
+      );
+      setObservationMessage("Eintrag gelöscht.");
+    } catch (err) {
+      setObservationMessage(
+        err instanceof Error ? err.message : "Löschen fehlgeschlagen",
+      );
+    } finally {
+      setDeletingObservationId(null);
+    }
+  }
+
+  useEffect(() => {
+    const runRefresh = () => {
+      void refresh();
+    };
+    const startup = window.setTimeout(runRefresh, 0);
+    const timer = window.setInterval(runRefresh, sampleInterval);
+    return () => {
+      window.clearTimeout(startup);
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const stationsById = useMemo(
+    () => Object.fromEntries(payload.stations.map((station) => [station.id, station])),
+    [payload.stations],
+  );
+
+  const kr = stationsById["202283"];
+  const puig = stationsById["201574"];
+  const reichenau = stationsById["201624"];
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      settingsStorageKey,
+      JSON.stringify(forecastSettings),
+    );
+  }, [forecastSettings]);
+
+  const upstreamFlow =
+    (kr?.discharge.value ?? 0) + (puig?.discharge.value ?? 0);
+  const downstreamFlow = reichenau?.discharge.value ?? 0;
+  const ratio = upstreamFlow > 0 ? (downstreamFlow / upstreamFlow) * 100 : 0;
+  const selected = stationsById[selectedStation] ?? payload.stations[0];
+  const mostRecent = payload.stations
+    .map((station) => station.water.dt)
+    .filter((value): value is number => typeof value === "number")
+    .sort((a, b) => b - a)[0];
+  const forecastHistory = history.length
+    ? history
+    : compactHistory([historyPointFromPayload(payload)].filter(Boolean) as HistoryPoint[]);
+  const oldestHistoryPoint = forecastHistory[0]?.t;
+  const newestHistoryPoint = forecastHistory[forecastHistory.length - 1]?.t;
+  const forecastLine = shiftedForecast(
+    forecastHistory,
+    forecastSettings.lagKroessbach,
+    forecastSettings.lagPuig,
+    nowMs,
+  );
+  const deltaLine = expectedDeltaSeries(
+    forecastLine,
+    forecastHistory,
+    forecastSettings.waveOffset,
+  );
+  const waveTime = mostRecent ?? forecastHistory[forecastHistory.length - 1]?.t ?? nowMs;
+  const lastMeasurementTime = newestHistoryPoint ?? waveTime;
+  const chartTimeDomain = {
+    min: lastMeasurementTime - forecastSettings.chartWindowHours * 60 * 60 * 1000,
+    max: Math.max(
+      forecastLine[forecastLine.length - 1]?.t ?? lastMeasurementTime,
+      lastMeasurementTime + sampleInterval,
+    ),
+  };
+  const reichenauEquivalentTime = waveTime + forecastSettings.waveOffset * 60 * 1000;
+  const expectedReichenauAtWave =
+    valueAt(forecastLine, reichenauEquivalentTime) ?? downstreamFlow;
+  const upstreamAtWave = upstreamAt(forecastHistory, waveTime) ?? upstreamFlow;
+  const expectedWaveDelta = expectedReichenauAtWave - upstreamAtWave;
+  const levelAtWave =
+    latestAt(forecastHistory, waveTime, "reichenauLevel") ??
+    valueOrNull(reichenau?.water.value);
+  const qualityNowModelScore = waveQualityScore(
+    expectedWaveDelta,
+    upstreamAtWave,
+    levelAtWave,
+    forecastSettings.surfMin,
+    forecastSettings.surfMax,
+    forecastSettings.levelMin,
+    forecastSettings.levelMax,
+  );
+  const manualNow = recentManualSignal(observations, waveTime);
+  const qualityNow = {
+    time: waveTime,
+    delta: expectedWaveDelta,
+    upstream: upstreamAtWave,
+    level: levelAtWave,
+    modelScore: qualityNowModelScore,
+    manual: manualNow,
+    score: blendManualQuality(qualityNowModelScore, manualNow, waveTime),
+  };
+  const horizonEnd = waveTime + 2 * 60 * 60 * 1000;
+  const qualityCandidates = deltaLine
+    .filter(
+      (point): point is { t: number; value: number } =>
+        point.value !== null && point.t >= waveTime && point.t <= horizonEnd,
+    )
+    .map((point) => {
+      const upstream = upstreamAt(forecastHistory, point.t) ?? upstreamAtWave;
+      const level = latestAt(forecastHistory, point.t, "reichenauLevel") ?? levelAtWave;
+      const modelScore = waveQualityScore(
+        point.value,
+        upstream,
+        level,
+        forecastSettings.surfMin,
+        forecastSettings.surfMax,
+        forecastSettings.levelMin,
+        forecastSettings.levelMax,
+      );
+      const manual = recentManualSignal(observations, point.t);
+      return {
+        time: point.t,
+        delta: point.value,
+        upstream,
+        level,
+        modelScore,
+        manual,
+        score: blendManualQuality(modelScore, manual, point.t),
+      };
+    });
+  const qualityForecast = [...qualityCandidates, qualityNow].sort(
+    (a, b) => b.score - a.score,
+  )[0];
+  const forecastArrivalKroessbach =
+    (kr?.discharge.dt ?? mostRecent ?? nowMs) +
+    forecastSettings.lagKroessbach * 60 * 1000;
+  const forecastArrivalPuig =
+    (puig?.discharge.dt ?? mostRecent ?? nowMs) +
+    forecastSettings.lagPuig * 60 * 1000;
+  const latestForecast =
+    forecastLine.findLast((point) => point.value !== null)?.value ?? upstreamFlow;
+
+  return (
+    <main className="dashboard-shell">
+      <section className="top-band">
+        <div>
+          <div className="brand-lockup">
+            <img src="/surfinn-logo.png" alt="SurfInn" />
+            <h1>
+              <span>SILLVIA</span>
+              <span>Forecast</span>
+            </h1>
+          </div>
+        </div>
+        <div className="refresh-panel">
+          <span>{loading ? "Aktualisiere" : "Stand"}</span>
+          <strong>{formatDate(mostRecent ?? payload.fetchedAt)}</strong>
+          <button type="button" onClick={refresh} aria-label="Daten aktualisieren">
+            ↻
+          </button>
+        </div>
+      </section>
+
+      {error ? <div className="notice">Liveabruf nicht verfügbar: {error}</div> : null}
+
+      <section className="kpi-grid" aria-label="Zusammenfassung">
+        <Metric
+          label="Zuflüsse Krössbach + Puig"
+          value={formatNumber(upstreamFlow, 2)}
+          unit="m³/s"
+        />
+        <Metric
+          label="Reichenau"
+          value={formatNumber(downstreamFlow, 2)}
+          unit="m³/s"
+        />
+        <Metric
+          label="Erwartetes Delta Welle"
+          value={`${expectedWaveDelta >= 0 ? "+" : ""}${formatNumber(expectedWaveDelta, 2)}`}
+          unit="m³/s"
+          tone={Math.abs(expectedWaveDelta) > upstreamFlow * 0.2 ? "watch" : "normal"}
+        />
+        <Metric
+          label="Unterlieger im Verhältnis"
+          value={formatNumber(ratio, 0)}
+          unit="%"
+        />
+      </section>
+
+      <section className="quality-section">
+        <div className="section-heading quality-heading">
+          <div>
+            <p>
+              Wellenqualität <span className="beta-badge">BETA</span>
+            </p>
+          </div>
+          <div className="quality-basis">
+            <span>Modell</span>
+            <strong>Delta + Oberlieger + Pegel + Meister</strong>
+          </div>
+        </div>
+        <div className="quality-grid">
+          <WaveQualityCard title="Jetzt" quality={qualityNow} />
+          <WaveQualityCard
+            title="Voraussichtlich nächster rippable Swell 🌊"
+            quality={qualityForecast}
+          />
+        </div>
+      </section>
+
+      <section className="observation-section">
+        <div className="section-heading observation-heading">
+          <div>
+            <p>Wellenmeister</p>
+            <h2>Sessionwerte eintragen</h2>
+          </div>
+          <div className="observation-count">
+            <span>72 h Einträge</span>
+            <strong>{observations.length}</strong>
+          </div>
+        </div>
+
+        <form className="observation-form" onSubmit={submitObservation}>
+          <label>
+            <span>Zeitpunkt</span>
+            <input
+              type="datetime-local"
+              value={observationForm.observedAt}
+              onChange={(event) =>
+                setObservationForm((current) => ({
+                  ...current,
+                  observedAt: event.target.value,
+                }))
+              }
+            />
+          </label>
+          <label>
+            <span>Trim cm</span>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={observationForm.trimCm}
+              onChange={(event) =>
+                setObservationForm((current) => ({
+                  ...current,
+                  trimCm: event.target.value,
+                }))
+              }
+              placeholder="niedriger = stärker"
+            />
+          </label>
+          <fieldset>
+            <legend>Welle</legend>
+            <div className="rating-buttons">
+              {[1, 2, 3, 4, 5].map((rating) => (
+                <button
+                  key={rating}
+                  type="button"
+                  className={
+                    observationForm.quality === rating
+                      ? `active rating-${rating}`
+                      : `rating-${rating}`
+                  }
+                  onClick={() =>
+                    setObservationForm((current) => ({
+                      ...current,
+                      quality: rating,
+                    }))
+                  }
+                >
+                  {rating}
+                </button>
+              ))}
+            </div>
+            <div className="rating-scale">
+              <span>1 schlecht</span>
+              <span>5 gut</span>
+            </div>
+          </fieldset>
+          <label>
+            <span>Notiz</span>
+            <input
+              type="text"
+              value={observationForm.note}
+              onChange={(event) =>
+                setObservationForm((current) => ({
+                  ...current,
+                  note: event.target.value,
+                }))
+              }
+              placeholder="optional"
+            />
+          </label>
+          <button type="submit" disabled={observationSaving}>
+            {observationSaving ? "Speichert" : "Speichern"}
+          </button>
+        </form>
+
+        {observationMessage ? (
+          <p className="observation-message">{observationMessage}</p>
+        ) : null}
+
+        <div className="observation-list" aria-label="Letzte Sessionwerte">
+          {observations.slice(0, 4).map((observation) => (
+            <article key={observation.id}>
+              <div className="observation-card-head">
+                <span>{formatDate(observation.observedAt)}</span>
+                <button
+                  type="button"
+                  onClick={() => void deleteObservation(observation.id)}
+                  disabled={deletingObservationId === observation.id}
+                >
+                  Löschen
+                </button>
+              </div>
+              <strong className={`quality-chip rating-${observation.quality}`}>
+                {observation.quality}/5
+              </strong>
+              <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
+              <dl>
+                <div>
+                  <dt>Abfluss K/P/R</dt>
+                  <dd>
+                    {formatTriple(
+                      observation.kroessbachDischarge,
+                      observation.puigDischarge,
+                      observation.reichenauDischarge,
+                      2,
+                    )}{" "}
+                    m³/s
+                  </dd>
+                </div>
+                <div>
+                  <dt>Pegel K/P/R</dt>
+                  <dd>
+                    {formatTriple(
+                      observation.kroessbachLevel,
+                      observation.puigLevel,
+                      observation.reichenauLevel,
+                      1,
+                    )}{" "}
+                    cm
+                  </dd>
+                </div>
+              </dl>
+              {observation.note ? <small>{observation.note}</small> : null}
+            </article>
+          ))}
+          {!observations.length ? (
+            <article>
+              <span>Noch keine Einträge</span>
+              <strong>n/a</strong>
+              <p>Die nächsten Sessionwerte erscheinen hier.</p>
+            </article>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="flow-section">
+        <div className="section-heading">
+          <p>Abflussmodell</p>
+          <h2>Oberlieger gegen Reichenau</h2>
+        </div>
+        <div className="flow-model">
+          <FlowNode station={kr} accent="teal" />
+          <FlowNode station={puig} accent="gold" />
+          <div className="merge-node">
+            <span>Σ</span>
+            <strong>{formatNumber(upstreamFlow, 2)} m³/s</strong>
+          </div>
+          <FlowNode station={reichenau} accent="coral" />
+        </div>
+        <div className="balance-bar" aria-label="Abflussverhältnis">
+          <div style={{ width: `${Math.min(100, ratio)}%` }} />
+        </div>
+      </section>
+
+      <section className="forecast-section">
+        <div className="section-heading forecast-heading">
+          <div>
+            <p>Surfforecast</p>
+            <h2>Abfluss im Zeitverlauf</h2>
+          </div>
+          <div className="forecast-status">
+            <span>{forecastHistory.length} Punkte</span>
+            <strong>{formatNumber(latestForecast, 2)} m³/s</strong>
+          </div>
+        </div>
+
+        <div className="forecast-layout">
+          <div className="forecast-stack">
+            <SurfForecastChart
+              history={forecastHistory}
+              forecast={forecastLine}
+              delta={deltaLine}
+              timeDomain={chartTimeDomain}
+              markerTime={lastMeasurementTime}
+              surfMin={Math.min(forecastSettings.surfMin, forecastSettings.surfMax)}
+              surfMax={Math.max(forecastSettings.surfMin, forecastSettings.surfMax)}
+              observations={observations}
+            />
+            <SurfLevelChart
+              history={forecastHistory}
+              timeDomain={chartTimeDomain}
+              markerTime={lastMeasurementTime}
+              levelMin={Math.min(forecastSettings.levelMin, forecastSettings.levelMax)}
+              levelMax={Math.max(forecastSettings.levelMin, forecastSettings.levelMax)}
+            />
+          </div>
+
+          <aside className="forecast-controls" aria-label="Forecast Einstellungen">
+            <RuntimeControl
+              label="Rückblick"
+              value={forecastSettings.chartWindowHours}
+              min={1}
+              max={72}
+              step={1}
+              unit="h"
+              onChange={(chartWindowHours) =>
+                setForecastSettings((settings) => ({
+                  ...settings,
+                  chartWindowHours,
+                }))
+              }
+            />
+            <RuntimeControl
+              label="Krössbach → Reichenau"
+              hint="Laufzeit, bis die Hochwasserwelle aus Krössbach in Reichenau ankommt."
+              beta
+              value={forecastSettings.lagKroessbach}
+              min={60}
+              max={180}
+              onChange={(lagKroessbach) =>
+                setForecastSettings((settings) => ({
+                  ...settings,
+                  lagKroessbach,
+                }))
+              }
+            />
+            <RuntimeControl
+              label="Puig → Reichenau"
+              hint="Laufzeit, bis die Hochwasserwelle aus Puig in Reichenau ankommt."
+              beta
+              value={forecastSettings.lagPuig}
+              min={45}
+              max={150}
+              onChange={(lagPuig) =>
+                setForecastSettings((settings) => ({
+                  ...settings,
+                  lagPuig,
+                }))
+              }
+            />
+            <RuntimeControl
+              label="Welle → Reichenau"
+              value={forecastSettings.waveOffset}
+              min={0}
+              max={30}
+              onChange={(waveOffset) =>
+                setForecastSettings((settings) => ({
+                  ...settings,
+                  waveOffset,
+                }))
+              }
+            />
+            <div className="surf-window">
+              <span>Zielbereich</span>
+              <div>
+                <input
+                  aria-label="Unterer Zielbereich"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={forecastSettings.surfMin}
+                  onChange={(event) =>
+                    setForecastSettings((settings) => ({
+                      ...settings,
+                      surfMin: Number(event.target.value),
+                    }))
+                  }
+                />
+                <input
+                  aria-label="Oberer Zielbereich"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={forecastSettings.surfMax}
+                  onChange={(event) =>
+                    setForecastSettings((settings) => ({
+                      ...settings,
+                      surfMax: Number(event.target.value),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="surf-window">
+              <span>Pegel-Zielbereich</span>
+              <div>
+                <input
+                  aria-label="Unterer Pegel-Zielbereich"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={forecastSettings.levelMin}
+                  onChange={(event) =>
+                    setForecastSettings((settings) => ({
+                      ...settings,
+                      levelMin: Number(event.target.value),
+                    }))
+                  }
+                />
+                <input
+                  aria-label="Oberer Pegel-Zielbereich"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={forecastSettings.levelMax}
+                  onChange={(event) =>
+                    setForecastSettings((settings) => ({
+                      ...settings,
+                      levelMax: Number(event.target.value),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <dl className="arrival-list">
+              <div>
+                <dt>Krössbach sichtbar</dt>
+                <dd>{formatTime(forecastArrivalKroessbach)}</dd>
+              </div>
+              <div>
+                <dt>Puig sichtbar</dt>
+                <dd>{formatTime(forecastArrivalPuig)}</dd>
+              </div>
+              <div>
+                <dt>Delta Welle</dt>
+                <dd>
+                  {expectedWaveDelta >= 0 ? "+" : ""}
+                  {formatNumber(expectedWaveDelta, 2)} m³/s
+                </dd>
+              </div>
+              <div>
+                <dt>Reichenau-Äquivalent</dt>
+                <dd>{formatTime(reichenauEquivalentTime)}</dd>
+              </div>
+              <div>
+                <dt>Basis</dt>
+                <dd>
+                  {payload.historySource === "database"
+                    ? "Datenbank + 15-min Ping"
+                    : "15-min Live-Snapshots"}
+                </dd>
+              </div>
+            </dl>
+          </aside>
+        </div>
+
+        <p className="runtime-note">
+          {kr?.waveRuntime ?? "Krössbach Laufzeit n/a"} ·{" "}
+          {puig?.waveRuntime ?? "Puig Laufzeit n/a"}
+        </p>
+      </section>
+
+      <section className="archive-section">
+        <div className="section-heading archive-heading">
+          <div>
+            <p>Datenarchiv</p>
+            <h2>Messpunkte für Auswertung</h2>
+          </div>
+          <div className="archive-state">
+            <span>Datenbank</span>
+            <strong>
+              {payload.historySource === "database" ? "aktiv" : "lokal"}
+            </strong>
+          </div>
+        </div>
+        <div className="archive-grid">
+          <div>
+            <span>Chartbereich</span>
+            <strong>
+              {oldestHistoryPoint && newestHistoryPoint
+                ? `${formatDate(oldestHistoryPoint)} - ${formatDate(newestHistoryPoint)}`
+                : "noch keine Historie"}
+            </strong>
+          </div>
+          <div>
+            <span>Aktuelle Zeitpunkte</span>
+            <strong>{forecastHistory.length}</strong>
+          </div>
+          <div className="archive-actions" aria-label="CSV Archiv herunterladen">
+            <a href="/api/history?days=2&format=csv" download>
+              48 h CSV
+            </a>
+            <a href="/api/history?days=7&format=csv" download>
+              7 Tage CSV
+            </a>
+            <a href="/api/history?days=30&format=csv" download>
+              30 Tage CSV
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section className="station-grid" aria-label="Messstellen">
+        {payload.stations.map((station) => (
+          <StationPanel key={station.id} station={station} />
+        ))}
+      </section>
+
+      <section className="chart-section">
+        <div className="section-heading">
+          <p>Offizielle Ganglinien</p>
+          <h2>{selected?.name ?? "Messstelle"}</h2>
+        </div>
+        <div className="toolbar">
+          <div className="segmented" aria-label="Messstelle auswählen">
+            {payload.stations.map((station) => (
+              <button
+                key={station.id}
+                type="button"
+                className={station.id === selectedStation ? "active" : ""}
+                onClick={() => setSelectedStation(station.id)}
+              >
+                {station.shortName}
+              </button>
+            ))}
+          </div>
+          <div className="segmented" aria-label="Diagrammtyp auswählen">
+            <button
+              type="button"
+              className={chartType === "W" ? "active" : ""}
+              onClick={() => setChartType("W")}
+            >
+              Pegel
+            </button>
+            <button
+              type="button"
+              className={chartType === "Q" ? "active" : ""}
+              onClick={() => setChartType("Q")}
+            >
+              Abfluss
+            </button>
+          </div>
+        </div>
+        <div className="chart-frame">
+          {selected ? (
+            <img
+              src={`/api/hydro/plot?station=${selected.id}&type=${chartType}`}
+              alt={`${chartType === "W" ? "Pegel" : "Abfluss"} ${selected.name}`}
+            />
+          ) : null}
+        </div>
+      </section>
+
+      <footer className="source-line">
+        Quelle: {payload.source}. Messstellen: 202283, 201574, 201624.
+      </footer>
+    </main>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  unit,
+  tone = "normal",
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  tone?: "normal" | "watch";
+}) {
+  return (
+    <article className={`metric ${tone}`}>
+      <span>{label}</span>
+      <strong>
+        {value} <small>{unit}</small>
+      </strong>
+    </article>
+  );
+}
+
+function WaveQualityCard({
+  title,
+  quality,
+}: {
+  title: string;
+  quality: {
+    time: number;
+    delta: number;
+    upstream: number;
+    level: number | null;
+    score: number;
+    modelScore: number;
+    manual: ManualQualitySignal | null;
+  };
+}) {
+  const tone = qualityTone(quality.score);
+
+  return (
+    <article className={`quality-card ${tone}`}>
+      <div>
+        <span>{title}</span>
+        <strong>{qualityLabel(quality.score)}</strong>
+      </div>
+      <p>{quality.score} %</p>
+      <div className="quality-meter" aria-label={`${title} ${quality.score} Prozent`}>
+        <i style={{ width: `${quality.score}%` }} />
+      </div>
+      <dl>
+        <div>
+          <dt>Zeit</dt>
+          <dd>{formatTime(quality.time)}</dd>
+        </div>
+        <div>
+          <dt>Delta</dt>
+          <dd>
+            {quality.delta >= 0 ? "+" : ""}
+            {formatNumber(quality.delta, 2)} m³/s
+          </dd>
+        </div>
+        <div>
+          <dt>Zuflüsse</dt>
+          <dd>{formatNumber(quality.upstream, 2)} m³/s</dd>
+        </div>
+        <div>
+          <dt>Pegel</dt>
+          <dd>{formatNumber(quality.level, 1)} cm</dd>
+        </div>
+        <div>
+          <dt>Modell</dt>
+          <dd>{quality.modelScore} %</dd>
+        </div>
+        <div>
+          <dt>Meister</dt>
+          <dd>
+            {quality.manual
+              ? `${quality.manual.quality}/5 · Trim: ${formatTrimCm(
+                  quality.manual.trimCm,
+                  quality.manual.trim,
+                )}`
+              : "n/a"}
+          </dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
+
+function FlowNode({
+  station,
+  accent,
+}: {
+  station?: HydroStation;
+  accent: "teal" | "gold" | "coral";
+}) {
+  return (
+    <article className={`flow-node ${accent}`}>
+      <span>{station?.river ?? "n/a"}</span>
+      <strong>{station?.shortName ?? "n/a"}</strong>
+      <p>
+        {formatNumber(station?.discharge.value ?? null, 2)}{" "}
+        {formatUnit(station?.discharge.unit ?? "m³/s")}
+      </p>
+    </article>
+  );
+}
+
+function SurfForecastChart({
+  history,
+  forecast,
+  delta,
+  timeDomain,
+  markerTime,
+  surfMin,
+  surfMax,
+  observations,
+}: {
+  history: HistoryPoint[];
+  forecast: { t: number; value: number | null }[];
+  delta: { t: number; value: number | null }[];
+  timeDomain: TimeDomain;
+  markerTime: number;
+  surfMin: number;
+  surfMax: number;
+  observations: SurfObservation[];
+}) {
+  const observedKroessbach = history.map((point) => ({
+    t: point.t,
+    value: point.kroessbach,
+  }));
+  const observedPuig = history.map((point) => ({
+    t: point.t,
+    value: point.puig,
+  }));
+  const observedUpstream = history.map((point) => ({
+    t: point.t,
+    value:
+      point.kroessbach === null && point.puig === null
+        ? null
+        : (point.kroessbach ?? 0) + (point.puig ?? 0),
+  }));
+  const observedReichenau = history.map((point) => ({
+    t: point.t,
+    value: point.reichenau,
+  }));
+  const sessionPoints = observations.map((observation) => ({
+    id: observation.id,
+    t: observation.observedAt,
+    value: observation.reichenauDischarge,
+    quality: observation.quality,
+    trimCm: observation.trimCm,
+    kroessbachDischarge: observation.kroessbachDischarge,
+    puigDischarge: observation.puigDischarge,
+    reichenauDischarge: observation.reichenauDischarge,
+    kroessbachLevel: observation.kroessbachLevel,
+    puigLevel: observation.puigLevel,
+    reichenauLevel: observation.reichenauLevel,
+  }));
+  const inTimeDomain = (point: { t: number }) =>
+    point.t >= timeDomain.min && point.t <= timeDomain.max;
+  const visibleKroessbach = observedKroessbach.filter(inTimeDomain);
+  const visiblePuig = observedPuig.filter(inTimeDomain);
+  const visibleUpstream = observedUpstream.filter(inTimeDomain);
+  const visibleReichenau = observedReichenau.filter(inTimeDomain);
+  const visibleForecast = forecast.filter(inTimeDomain);
+  const visibleDelta = delta.filter(inTimeDomain);
+  const visibleSessionPoints = sessionPoints.filter(inTimeDomain);
+  const allValues = [
+    ...visibleKroessbach,
+    ...visiblePuig,
+    ...visibleUpstream,
+    ...visibleReichenau,
+    ...visibleForecast,
+    ...visibleDelta,
+    ...visibleSessionPoints,
+  ]
+    .map((point) => point.value)
+    .filter((value): value is number => typeof value === "number");
+  allValues.push(surfMin, surfMax);
+  const minT = timeDomain.min;
+  const maxT = timeDomain.max;
+  const rawMinValue = Math.min(0, ...allValues);
+  const rawMaxValue = Math.max(1, ...allValues);
+  const valueRange = Math.max(1, rawMaxValue - rawMinValue);
+  const minValue = rawMinValue - valueRange * 0.08;
+  const maxValue = rawMaxValue + valueRange * 0.12;
+  const width = 820;
+  const height = 360;
+  const plot = { left: 58, top: 20, right: 20, bottom: 42 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const x = (t: number) =>
+    plot.left + ((t - minT) / Math.max(1, maxT - minT)) * plotWidth;
+  const y = (value: number) =>
+    plot.top +
+    plotHeight -
+    ((value - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
+  const tickCount = 9;
+  const tickStep = (maxValue - minValue) / (tickCount - 1);
+  const yTicks = Array.from(
+    new Set([
+      ...Array.from(
+        { length: tickCount },
+        (_, index) => Number((minValue + tickStep * index).toFixed(2)),
+      ),
+      0,
+    ]),
+  ).sort((a, b) => a - b);
+  const tickDecimals = tickStep < 5 ? 1 : 0;
+  const xTicks = Array.from({ length: 5 }, (_, index) =>
+    minT + ((maxT - minT) / 4) * index,
+  );
+  const surfY = Math.max(plot.top, y(surfMax));
+  const surfBottom = Math.min(plot.top + plotHeight, y(surfMin));
+  const surfHeight = Math.max(4, surfBottom - surfY);
+  const zeroY = y(0);
+  const markerX = x(markerTime);
+
+  return (
+    <div className="forecast-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <title>Abfluss im Verhältnis zur Zeit</title>
+        <rect
+          className="surf-range"
+          x={plot.left}
+          y={surfY}
+          width={plotWidth}
+          height={surfHeight}
+        />
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line
+              className="grid-line"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={y(tick)}
+              y2={y(tick)}
+            />
+            <text x={12} y={y(tick) + 4}>
+              {formatNumber(tick, tickDecimals)}
+            </text>
+          </g>
+        ))}
+        {zeroY >= plot.top && zeroY <= plot.top + plotHeight ? (
+          <g>
+            <line
+              className="zero-line"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={zeroY}
+              y2={zeroY}
+            />
+            <text
+              className="zero-label"
+              x={width - plot.right - 8}
+              y={zeroY - 8}
+              textAnchor="end"
+            >
+              0
+            </text>
+          </g>
+        ) : null}
+        {xTicks.map((tick) => (
+          <text key={tick} x={x(tick)} y={height - 12} textAnchor="middle">
+            {formatAxisTime(tick, maxT - minT)}
+          </text>
+        ))}
+        {markerX >= plot.left && markerX <= width - plot.right ? (
+          <g>
+            <line
+              className="marker-line"
+              x1={markerX}
+              x2={markerX}
+              y1={plot.top}
+              y2={plot.top + plotHeight}
+            />
+            <text className="marker-label" x={markerX + 7} y={plot.top + 12}>
+              Messpunkt
+            </text>
+          </g>
+        ) : null}
+        <path
+          className="line kroessbach"
+          d={linePath(visibleKroessbach, x, y)}
+        />
+        <path className="line puig" d={linePath(visiblePuig, x, y)} />
+        <path
+          className="line upstream"
+          d={linePath(visibleUpstream, x, y)}
+        />
+        <path
+          className="line reichenau"
+          d={linePath(visibleReichenau, x, y)}
+        />
+        <path className="line forecast" d={linePath(visibleForecast, x, y)} />
+        <path className="line delta" d={linePath(visibleDelta, x, y)} />
+        {visibleReichenau.map((point) =>
+          point.value === null ? null : (
+            <circle
+              key={point.t}
+              className="dot reichenau-dot"
+              cx={x(point.t)}
+              cy={y(point.value)}
+              r="4"
+            />
+          ),
+        )}
+        {visibleSessionPoints.map((point) =>
+          point.value === null ? null : (
+            <g key={point.id}>
+              <title>
+                {`Session ${formatTime(point.t)} · Qualität ${point.quality}/5 · Trim ${formatTrimCm(
+                  point.trimCm,
+                  "",
+                )} · Abfluss K/P/R ${formatTriple(
+                  point.kroessbachDischarge,
+                  point.puigDischarge,
+                  point.reichenauDischarge,
+                  2,
+                )} m³/s · Pegel K/P/R ${formatTriple(
+                  point.kroessbachLevel,
+                  point.puigLevel,
+                  point.reichenauLevel,
+                  1,
+                )} cm`}
+              </title>
+              <circle
+                className={`session-dot rating-${point.quality}`}
+                cx={x(point.t)}
+                cy={y(point.value)}
+                r="6"
+              />
+              <text
+                className="session-label"
+                x={x(point.t)}
+                y={y(point.value) - 10}
+                textAnchor="middle"
+              >
+                {point.quality}
+              </text>
+            </g>
+          ),
+        )}
+      </svg>
+      <div className="chart-legend">
+        <span className="kroessbach">Krössbach</span>
+        <span className="puig">Puig</span>
+        <span className="upstream">Krössbach + Puig</span>
+        <span className="reichenau">Reichenau gemessen</span>
+        <span className="forecast">
+          Forecast Reichenau <b>BETA</b>
+        </span>
+        <span className="delta">Delta Welle</span>
+        <span className="session">Sessionwerte</span>
+        <span className="range">Zielbereich</span>
+      </div>
+    </div>
+  );
+}
+
+function SurfLevelChart({
+  history,
+  timeDomain,
+  markerTime,
+  levelMin,
+  levelMax,
+}: {
+  history: HistoryPoint[];
+  timeDomain: TimeDomain;
+  markerTime: number;
+  levelMin: number;
+  levelMax: number;
+}) {
+  const kroessbachLevel = history.map((point) => ({
+    t: point.t,
+    value: point.kroessbachLevel,
+  }));
+  const puigLevel = history.map((point) => ({
+    t: point.t,
+    value: point.puigLevel,
+  }));
+  const reichenauLevel = history.map((point) => ({
+    t: point.t,
+    value: point.reichenauLevel,
+  }));
+  const inTimeDomain = (point: { t: number }) =>
+    point.t >= timeDomain.min && point.t <= timeDomain.max;
+  const visibleKroessbachLevel = kroessbachLevel.filter(inTimeDomain);
+  const visiblePuigLevel = puigLevel.filter(inTimeDomain);
+  const visibleReichenauLevel = reichenauLevel.filter(inTimeDomain);
+  const series = [
+    ...visibleKroessbachLevel,
+    ...visiblePuigLevel,
+    ...visibleReichenauLevel,
+  ];
+  const allValues = series
+    .map((point) => point.value)
+    .filter((value): value is number => typeof value === "number");
+  allValues.push(levelMin, levelMax);
+  const minT = timeDomain.min;
+  const maxT = timeDomain.max;
+  const rawMinValue = Math.min(...allValues, 0);
+  const rawMaxValue = Math.max(...allValues, 1);
+  const valueRange = Math.max(1, rawMaxValue - rawMinValue);
+  const minValue = Math.max(0, rawMinValue - valueRange * 0.08);
+  const maxValue = rawMaxValue + valueRange * 0.12;
+  const width = 820;
+  const height = 300;
+  const plot = { left: 58, top: 26, right: 20, bottom: 42 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const x = (t: number) =>
+    plot.left + ((t - minT) / Math.max(1, maxT - minT)) * plotWidth;
+  const y = (value: number) =>
+    plot.top +
+    plotHeight -
+    ((value - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
+  const tickCount = 7;
+  const tickStep = (maxValue - minValue) / (tickCount - 1);
+  const yTicks = Array.from({ length: tickCount }, (_, index) =>
+    Number((minValue + tickStep * index).toFixed(1)),
+  );
+  const xTicks = Array.from({ length: 5 }, (_, index) =>
+    minT + ((maxT - minT) / 4) * index,
+  );
+  const levelY = Math.max(plot.top, y(levelMax));
+  const levelBottom = Math.min(plot.top + plotHeight, y(levelMin));
+  const levelHeight = Math.max(4, levelBottom - levelY);
+  const markerX = x(markerTime);
+
+  return (
+    <div className="forecast-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <title>Pegel im Verhältnis zur Zeit</title>
+        <text className="chart-title" x={plot.left} y={16}>
+          Pegel im Zeitverlauf
+        </text>
+        <rect
+          className="level-range"
+          x={plot.left}
+          y={levelY}
+          width={plotWidth}
+          height={levelHeight}
+        />
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line
+              className="grid-line"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={y(tick)}
+              y2={y(tick)}
+            />
+            <text x={12} y={y(tick) + 4}>
+              {formatNumber(tick, 0)}
+            </text>
+          </g>
+        ))}
+        {xTicks.map((tick) => (
+          <text key={tick} x={x(tick)} y={height - 12} textAnchor="middle">
+            {formatAxisTime(tick, maxT - minT)}
+          </text>
+        ))}
+        {markerX >= plot.left && markerX <= width - plot.right ? (
+          <g>
+            <line
+              className="marker-line"
+              x1={markerX}
+              x2={markerX}
+              y1={plot.top}
+              y2={plot.top + plotHeight}
+            />
+            <text className="marker-label" x={markerX + 7} y={plot.top + 12}>
+              Messpunkt
+            </text>
+          </g>
+        ) : null}
+        <path
+          className="line kroessbach"
+          d={linePath(visibleKroessbachLevel, x, y)}
+        />
+        <path className="line puig" d={linePath(visiblePuigLevel, x, y)} />
+        <path
+          className="line reichenau"
+          d={linePath(visibleReichenauLevel, x, y)}
+        />
+      </svg>
+      <div className="chart-legend">
+        <span className="kroessbach">Krössbach Pegel</span>
+        <span className="puig">Puig Pegel</span>
+        <span className="reichenau">Reichenau Pegel</span>
+        <span className="level-range">Pegel-Zielbereich</span>
+      </div>
+    </div>
+  );
+}
+
+function linePath(
+  points: { t: number; value: number | null }[],
+  x: (time: number) => number,
+  y: (value: number) => number,
+) {
+  return points
+    .filter((point) => point.value !== null)
+    .map((point, index) => {
+      const command = index === 0 ? "M" : "L";
+      return `${command} ${x(point.t).toFixed(1)} ${y(point.value ?? 0).toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function RuntimeControl({
+  label,
+  hint,
+  beta = false,
+  value,
+  min,
+  max,
+  step = 5,
+  unit = "min",
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  beta?: boolean;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  unit?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="runtime-control">
+      <span>
+        {label} {beta ? <b>BETA</b> : null}
+      </span>
+      {hint ? <em>{hint}</em> : null}
+      <strong>
+        {value} {unit}
+      </strong>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
+function StationPanel({ station }: { station: HydroStation }) {
+  const waterPct = pct(station.water.value, station.thresholds.hw1.value);
+  const hw30Pct = pct(station.water.value, station.thresholds.hw30.value);
+  const tone = statusTone(station);
+
+  return (
+    <article className={`station-panel ${tone}`}>
+      <header>
+        <div>
+          <span>{station.river}</span>
+          <h3>{station.name}</h3>
+        </div>
+        <b>{station.water.classification ?? "ohne Klasse"}</b>
+      </header>
+
+      <dl className="reading-grid">
+        <div>
+          <dt>Pegel</dt>
+          <dd>
+            {formatNumber(station.water.value, 1)}{" "}
+            <small>{formatUnit(station.water.unit)}</small>
+          </dd>
+        </div>
+        <div>
+          <dt>Abfluss</dt>
+          <dd>
+            {formatNumber(station.discharge.value, 2)}{" "}
+            <small>{formatUnit(station.discharge.unit)}</small>
+          </dd>
+        </div>
+        <div>
+          <dt>Tendenz</dt>
+          <dd>{tendencyLabel(station.water.tendency)}</dd>
+        </div>
+        <div>
+          <dt>Messzeit</dt>
+          <dd>{formatDate(station.water.dt)}</dd>
+        </div>
+      </dl>
+
+      <div className="thresholds">
+        <div>
+          <span>HW1</span>
+          <strong>
+            {formatNumber(station.thresholds.hw1.value, 0)}{" "}
+            {formatUnit(station.thresholds.hw1.unit)}
+          </strong>
+        </div>
+        <div className="track">
+          <i style={{ width: `${waterPct}%` }} />
+        </div>
+        <div>
+          <span>HW30</span>
+          <strong>
+            {formatNumber(station.thresholds.hw30.value, 0)}{" "}
+            {formatUnit(station.thresholds.hw30.unit)}
+          </strong>
+        </div>
+        <div className="track subtle">
+          <i style={{ width: `${hw30Pct}%` }} />
+        </div>
+      </div>
+
+      <p className="station-meta">
+        {station.role} · {station.altitude ? `${station.altitude} m` : "Hoehe n/a"}
+      </p>
+    </article>
+  );
+}
