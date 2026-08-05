@@ -132,6 +132,43 @@ const reviewPresets: { id: ReviewPreset; label: string }[] = [
   { id: "all", label: "Alle Daten" },
   { id: "custom", label: "Datum" },
 ];
+const spotInsightSummary = {
+  sample: "27 Spotinfos aus 36 SurfInn Sessions",
+  good: [
+    {
+      label: "Rippable Fenster",
+      value: "ca. 16-22 m³/s",
+      detail: "oft gut, wenn Reichenau ruhig bleibt und der Pegel grob im 276-284 cm Bereich liegt.",
+    },
+    {
+      label: "Kanal / KW",
+      value: "kontrollierter Zufluss",
+      detail: "kann Druck geben, solange die Sill nicht sprunghaft hochkommt.",
+    },
+    {
+      label: "Trim-Hinweis",
+      value: "220-225 cm",
+      detail: "taucht mehrfach als brauchbarer Bereich auf; niedriger bedeutet stärker getrimmt.",
+    },
+  ],
+  bad: [
+    {
+      label: "Sill-Spikes",
+      value: "schneller Anstieg",
+      detail: "Spotinfos nennen dann oft abgesoffen, braunes Wasser, Treibgut oder stark wechselnde Welle.",
+    },
+    {
+      label: "Hoher Pegel",
+      value: "> ca. 290 cm",
+      detail: "tendenziell weniger Halt und mehr Weißwasser; es gibt aber Ausnahmen.",
+    },
+    {
+      label: "Zu wenig Kanal",
+      value: "wenig Druck",
+      detail: "bei niedrigem Zufluss wirkt die Welle eher klein oder schwach.",
+    },
+  ],
+};
 
 const fallbackPayload: HydroPayload = {
   fetchedAt: new Date().toISOString(),
@@ -980,6 +1017,11 @@ export default function Home() {
   const qualityForecast = [...qualityCandidates, qualityNow].sort(
     (a, b) => b.score - a.score,
   )[0];
+  const observationsWithUpstream = observations.filter(
+    (observation) =>
+      observation.kroessbachDischarge !== null ||
+      observation.puigDischarge !== null,
+  ).length;
   const forecastArrivalKroessbach =
     (kr?.discharge.dt ?? mostRecent ?? nowMs) +
     forecastSettings.lagKroessbach * 60 * 1000;
@@ -1205,6 +1247,8 @@ export default function Home() {
           ) : null}
         </div>
       </section>
+
+      <SpotInsightSection observationsWithUpstream={observationsWithUpstream} />
 
       <section className="flow-section">
         <div className="section-heading">
@@ -1505,6 +1549,77 @@ export default function Home() {
   );
 }
 
+function SpotInsightSection({
+  observationsWithUpstream,
+}: {
+  observationsWithUpstream: number;
+}) {
+  return (
+    <section className="spot-insight-section">
+      <div className="section-heading spot-insight-heading">
+        <div>
+          <p>Spotinfos</p>
+          <h2>Muster für gute und schlechte Konditionen</h2>
+        </div>
+        <div className="spot-insight-source">
+          <span>Datenbasis</span>
+          <strong>{spotInsightSummary.sample}</strong>
+        </div>
+      </div>
+
+      <div className="spot-insight-grid">
+        <InsightColumn title="Eher gut" tone="good" items={spotInsightSummary.good} />
+        <InsightColumn title="Eher kritisch" tone="bad" items={spotInsightSummary.bad} />
+        <article className="correlation-card">
+          <span>Nächster Lernschritt</span>
+          <strong>Puig + Krössbach Korrelation</strong>
+          <p>
+            Neue Sessionwerte speichern bereits Abfluss und Pegel von Krössbach,
+            Puig und Reichenau. Sobald genug Bewertungen da sind, vergleichen wir
+            Wellenqualität gegen einzelne Zuflüsse, Summe, Delta, Pegel und
+            Änderungsrate.
+          </p>
+          <dl>
+            <div>
+              <dt>Verknüpfte Einträge</dt>
+              <dd>{observationsWithUpstream}</dd>
+            </div>
+            <div>
+              <dt>Hypothese</dt>
+              <dd>Menge + Trend + KW/Kanal-Umschaltung</dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function InsightColumn({
+  title,
+  tone,
+  items,
+}: {
+  title: string;
+  tone: "good" | "bad";
+  items: { label: string; value: string; detail: string }[];
+}) {
+  return (
+    <article className={`insight-column ${tone}`}>
+      <h3>{title}</h3>
+      <div>
+        {items.map((item) => (
+          <section key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            <p>{item.detail}</p>
+          </section>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 function Metric({
   label,
   value,
@@ -1801,17 +1916,6 @@ function SurfForecastChart({
         />
         <path className="line forecast" d={linePath(visibleForecast, x, y)} />
         <path className="line delta" d={linePath(visibleDelta, x, y)} />
-        {visibleReichenau.map((point) =>
-          point.value === null ? null : (
-            <circle
-              key={point.t}
-              className="dot reichenau-dot"
-              cx={x(point.t)}
-              cy={y(point.value)}
-              r="4"
-            />
-          ),
-        )}
         {visibleSessionPoints.map((point) =>
           point.value === null ? null : (
             <g key={point.id}>
@@ -1835,12 +1939,12 @@ function SurfForecastChart({
                 className={`session-dot rating-${point.quality}`}
                 cx={x(point.t)}
                 cy={y(point.value)}
-                r="6"
+                r="4"
               />
               <text
                 className="session-label"
                 x={x(point.t)}
-                y={y(point.value) - 10}
+                y={y(point.value) - 7}
                 textAnchor="middle"
               >
                 {point.quality}

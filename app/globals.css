@@ -194,6 +194,7 @@ h3 {
 .station-panel,
 .quality-section,
 .observation-section,
+.spot-insight-section,
 .flow-section,
 .forecast-section,
 .archive-section,
@@ -241,6 +242,10 @@ h3 {
 }
 
 .observation-section {
+  order: 6;
+}
+
+.spot-insight-section {
   order: 5;
 }
 
@@ -625,6 +630,112 @@ h3 {
   line-height: 1.35;
 }
 
+.spot-insight-heading {
+  align-items: center;
+}
+
+.spot-insight-source {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  min-width: 210px;
+  padding: 10px 12px;
+}
+
+.spot-insight-source span,
+.correlation-card span,
+.insight-column section span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.spot-insight-source strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.spot-insight-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.insight-column,
+.correlation-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  min-height: 230px;
+  padding: 16px;
+}
+
+.insight-column.good {
+  background: #eef7f1;
+  border-color: #cddfce;
+}
+
+.insight-column.bad {
+  background: #fff4e7;
+  border-color: #ead3b1;
+}
+
+.insight-column h3,
+.correlation-card strong {
+  color: var(--ink);
+  font-size: 1.12rem;
+}
+
+.insight-column > div {
+  display: grid;
+  gap: 12px;
+}
+
+.insight-column section {
+  display: grid;
+  gap: 4px;
+}
+
+.insight-column section strong {
+  color: var(--ink);
+  font-size: 1.02rem;
+}
+
+.insight-column section p,
+.correlation-card p {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.correlation-card {
+  background: #f8fafb;
+}
+
+.correlation-card dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.correlation-card dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.correlation-card dd {
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 850;
+  margin: 3px 0 0;
+}
+
 .section-heading {
   align-items: end;
   display: flex;
@@ -869,12 +980,12 @@ h3 {
 
 .session-dot {
   stroke: #fff;
-  stroke-width: 2.5;
+  stroke-width: 1.8;
 }
 
 .session-label {
   fill: var(--ink);
-  font-size: 0.68rem;
+  font-size: 0.56rem;
   font-weight: 900;
 }
 
@@ -1359,6 +1470,7 @@ h3 {
   .quality-grid,
   .observation-form,
   .observation-list,
+  .spot-insight-grid,
   .flow-model,
   .forecast-layout,
   .archive-grid,
@@ -1398,6 +1510,7 @@ h3 {
   .top-band,
   .quality-section,
   .observation-section,
+  .spot-insight-section,
   .flow-section,
   .forecast-section,
   .archive-section,
