@@ -360,7 +360,7 @@ function formatDateTimeInput(value: number) {
 
 function parseDateTimeInput(value: string) {
   const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : Date.now();
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function parseStartDate(value: string) {
@@ -502,6 +502,12 @@ function ratingClass(quality: number) {
 
 function formatQuality(value: number) {
   return formatNumber(value, 1);
+}
+
+function sortSurfObservations(observations: SurfObservation[]) {
+  return [...observations].sort(
+    (a, b) => b.observedAt - a.observedAt || b.id - a.id,
+  );
 }
 
 function qualityLabel(score: number) {
@@ -1116,6 +1122,9 @@ export default function Home() {
     quality: 3.0,
     note: "",
   }));
+  const [editingObservationId, setEditingObservationId] = useState<number | null>(
+    null,
+  );
   const [observationSaving, setObservationSaving] = useState(false);
   const [deletingObservationId, setDeletingObservationId] = useState<number | null>(
     null,
@@ -1183,7 +1192,7 @@ export default function Home() {
       const data = (await response.json()) as {
         observations?: SurfObservation[];
       };
-      setObservations(data.observations ?? []);
+      setObservations(sortSurfObservations(data.observations ?? []));
     } catch {
       setObservations([]);
     }
@@ -1194,6 +1203,12 @@ export default function Home() {
     setObservationMessage("");
 
     const trimCm = Number(observationForm.trimCm);
+    const observedAt = parseDateTimeInput(observationForm.observedAt);
+
+    if (observedAt === null) {
+      setObservationMessage("Bitte Zeitpunkt eintragen.");
+      return;
+    }
 
     if (!Number.isFinite(trimCm) || trimCm < 0) {
       setObservationMessage("Bitte Trim als cm-Wert eintragen.");
@@ -1202,11 +1217,13 @@ export default function Home() {
 
     setObservationSaving(true);
     try {
+      const isEditing = editingObservationId !== null;
       const response = await fetch("/api/surf-observations", {
-        method: "POST",
+        method: isEditing ? "PUT" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          observedAt: parseDateTimeInput(observationForm.observedAt),
+          id: editingObservationId,
+          observedAt,
           trimCm,
           quality: observationForm.quality,
           note: observationForm.note,
@@ -1219,15 +1236,23 @@ export default function Home() {
       if (!response.ok || !data.observation) {
         throw new Error(data.error ?? "Speichern fehlgeschlagen");
       }
-      setObservations((current) => [data.observation!, ...current].slice(0, 200));
+      setObservations((current) => {
+        const withoutOldVersion = current.filter(
+          (observation) => observation.id !== data.observation!.id,
+        );
+        return sortSurfObservations([data.observation!, ...withoutOldVersion]).slice(
+          0,
+          200,
+        );
+      });
+      setEditingObservationId(null);
       setObservationForm((current) => ({
         ...current,
-        observedAt: formatDateTimeInput(
-          parseDateTimeInput(current.observedAt) + 30 * 60 * 1000,
-        ),
+        observedAt: formatDateTimeInput(observedAt + 30 * 60 * 1000),
+        trimCm: "",
         note: "",
       }));
-      setObservationMessage("Gespeichert.");
+      setObservationMessage(isEditing ? "Eintrag aktualisiert." : "Gespeichert.");
     } catch (err) {
       setObservationMessage(
         err instanceof Error ? err.message : "Speichern fehlgeschlagen",
@@ -1235,6 +1260,31 @@ export default function Home() {
     } finally {
       setObservationSaving(false);
     }
+  }
+
+  function editObservation(observation: SurfObservation) {
+    setEditingObservationId(observation.id);
+    setObservationForm({
+      observedAt: formatDateTimeInput(observation.observedAt),
+      trimCm:
+        observation.trimCm === null
+          ? ""
+          : String(Math.round(observation.trimCm * 10) / 10),
+      quality: observation.quality,
+      note: observation.note ?? "",
+    });
+    setObservationMessage("Eintrag wird bearbeitet.");
+  }
+
+  function cancelObservationEdit() {
+    setEditingObservationId(null);
+    setObservationForm({
+      observedAt: formatDateTimeInput(Date.now()),
+      trimCm: "",
+      quality: 3.0,
+      note: "",
+    });
+    setObservationMessage("");
   }
 
   async function deleteObservation(id: number) {
@@ -1253,6 +1303,9 @@ export default function Home() {
       setObservations((current) =>
         current.filter((observation) => observation.id !== id),
       );
+      if (editingObservationId === id) {
+        cancelObservationEdit();
+      }
       setObservationMessage("Eintrag gelöscht.");
     } catch (err) {
       setObservationMessage(
@@ -1817,6 +1870,7 @@ export default function Home() {
                   <span>Zeitpunkt</span>
                   <input
                     type="datetime-local"
+                    required
                     value={observationForm.observedAt}
                     onChange={(event) =>
                       setObservationForm((current) => ({
@@ -1832,6 +1886,7 @@ export default function Home() {
                     type="number"
                     min="0"
                     step="0.5"
+                    required
                     value={observationForm.trimCm}
                     onChange={(event) =>
                       setObservationForm((current) => ({
@@ -1881,8 +1936,22 @@ export default function Home() {
                   />
                 </label>
                 <button type="submit" disabled={observationSaving}>
-                  {observationSaving ? "Speichert" : "Speichern"}
+                  {observationSaving
+                    ? "Speichert"
+                    : editingObservationId === null
+                      ? "Speichern"
+                      : "Aktualisieren"}
                 </button>
+                {editingObservationId !== null ? (
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={cancelObservationEdit}
+                    disabled={observationSaving}
+                  >
+                    Abbrechen
+                  </button>
+                ) : null}
               </form>
 
               {observationMessage ? (
@@ -1894,13 +1963,23 @@ export default function Home() {
                   <article key={observation.id}>
                     <div className="observation-card-head">
                       <span>{formatDate(observation.observedAt)}</span>
-                      <button
-                        type="button"
-                        onClick={() => void deleteObservation(observation.id)}
-                        disabled={deletingObservationId === observation.id}
-                      >
-                        Löschen
-                      </button>
+                      <div className="observation-card-actions">
+                        <button
+                          type="button"
+                          className="edit"
+                          onClick={() => editObservation(observation)}
+                          disabled={observationSaving}
+                        >
+                          Bearbeiten
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteObservation(observation.id)}
+                          disabled={deletingObservationId === observation.id}
+                        >
+                          Löschen
+                        </button>
+                      </div>
                     </div>
                     <strong className={`quality-chip ${ratingClass(observation.quality)}`}>
                       {formatQuality(observation.quality)}/5
@@ -2503,7 +2582,8 @@ function SurfForecastChart({
   const visibleSessionPoints = sessionPoints.filter(inTimeDomain);
   const visibleTrimPoints = visibleSessionPoints
     .map((point) => ({ t: point.t, value: point.trimCm }))
-    .filter((point): point is { t: number; value: number } => point.value !== null);
+    .filter((point): point is { t: number; value: number } => point.value !== null)
+    .sort((a, b) => a.t - b.t);
   const allValues = [
     ...(visible.kroessbach ? visibleKroessbach : []),
     ...(visible.puig ? visiblePuig : []),
@@ -2563,6 +2643,10 @@ function SurfForecastChart({
   const surfHeight = Math.max(4, surfBottom - surfY);
   const zeroY = y(0);
   const markerX = x(markerTime);
+  const trimSegments = splitLineSegments(
+    visibleTrimPoints,
+    5 * 60 * 60 * 1000,
+  );
 
   return (
     <div className="forecast-chart">
@@ -2601,7 +2685,20 @@ function SurfForecastChart({
             >
               {formatNumber(trimMax, 0)}
             </text>
-            <path className="line trim" d={linePath(visibleTrimPoints, x, yTrim)} />
+            {trimSegments.solid.map((segment, index) => (
+              <path
+                key={`trim-solid-${index}`}
+                className="line trim"
+                d={linePath(segment, x, yTrim)}
+              />
+            ))}
+            {trimSegments.gaps.map((segment, index) => (
+              <path
+                key={`trim-gap-${index}`}
+                className="line trim trim-gap"
+                d={linePath(segment, x, yTrim)}
+              />
+            ))}
             {visibleTrimPoints.map((point) => (
               <circle
                 key={`${point.t}-${point.value}`}
@@ -3089,6 +3186,35 @@ function LegendToggle({
       {children}
     </button>
   );
+}
+
+function splitLineSegments<T extends { t: number; value: number | null }>(
+  points: T[],
+  maxSolidGapMs: number,
+) {
+  const validPoints = points
+    .filter((point) => point.value !== null)
+    .sort((a, b) => a.t - b.t);
+  const solid: T[][] = [];
+  const gaps: T[][] = [];
+  let current: T[] = [];
+
+  validPoints.forEach((point, index) => {
+    const previous = validPoints[index - 1];
+
+    if (previous && point.t - previous.t > maxSolidGapMs) {
+      if (current.length >= 2) solid.push(current);
+      gaps.push([previous, point]);
+      current = [point];
+      return;
+    }
+
+    current.push(point);
+  });
+
+  if (current.length >= 2) solid.push(current);
+
+  return { solid, gaps };
 }
 
 function linePath(

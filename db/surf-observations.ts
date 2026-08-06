@@ -45,6 +45,15 @@ type CreateSurfObservation = {
   createdBy?: string | null;
 };
 
+type UpdateSurfObservation = {
+  id: number;
+  observedAt: number;
+  trim: string;
+  trimCm: number;
+  quality: number;
+  note?: string | null;
+};
+
 type NearestMeasurementRow = {
   measured_at: number;
   water_value: number | null;
@@ -175,6 +184,64 @@ export async function createSurfObservation(input: CreateSurfObservation) {
     .first<SurfObservationRow>();
 
   if (!result) throw new Error("Beobachtung konnte nicht gespeichert werden");
+  return rowToObservation(result);
+}
+
+export async function updateSurfObservation(input: UpdateSurfObservation) {
+  const db = getD1();
+  const context = await getHydroContext(db, input.observedAt);
+  const result = await db
+    .prepare(
+      `UPDATE surf_observations
+       SET
+        observed_at = ?,
+        trim = ?,
+        trim_cm = ?,
+        quality = ?,
+        context_measured_at = ?,
+        kroessbach_discharge = ?,
+        puig_discharge = ?,
+        reichenau_discharge = ?,
+        kroessbach_level = ?,
+        puig_level = ?,
+        reichenau_level = ?,
+        note = ?
+       WHERE id = ?
+       RETURNING
+        id,
+        observed_at,
+        created_at,
+        trim,
+        trim_cm,
+        quality,
+        context_measured_at,
+        kroessbach_discharge,
+        puig_discharge,
+        reichenau_discharge,
+        kroessbach_level,
+        puig_level,
+        reichenau_level,
+        note,
+        created_by`,
+    )
+    .bind(
+      input.observedAt,
+      input.trim,
+      input.trimCm,
+      input.quality,
+      context.contextMeasuredAt,
+      context.kroessbachDischarge,
+      context.puigDischarge,
+      context.reichenauDischarge,
+      context.kroessbachLevel,
+      context.puigLevel,
+      context.reichenauLevel,
+      input.note ?? null,
+      input.id,
+    )
+    .first<SurfObservationRow>();
+
+  if (!result) throw new Error("Eintrag wurde nicht gefunden");
   return rowToObservation(result);
 }
 

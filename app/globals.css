@@ -424,7 +424,7 @@ h3 {
   align-items: end;
   display: grid;
   gap: 12px;
-  grid-template-columns: 1.15fr 0.85fr 0.9fr 1.15fr 120px;
+  grid-template-columns: 1.1fr 0.75fr 0.9fr 1fr 112px 108px;
 }
 
 .observation-form label,
@@ -531,6 +531,12 @@ h3 {
   padding: 0 14px;
 }
 
+.observation-form > button.secondary-action {
+  background: #eef4f5;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
 .observation-form > button:disabled {
   cursor: wait;
   opacity: 0.64;
@@ -564,7 +570,14 @@ h3 {
   justify-content: space-between;
 }
 
-.observation-card-head button {
+.observation-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.observation-card-actions button {
   background: #fcebea;
   border: 1px solid #e7b6b2;
   border-radius: 6px;
@@ -576,7 +589,13 @@ h3 {
   padding: 0 8px;
 }
 
-.observation-card-head button:disabled {
+.observation-card-actions button.edit {
+  background: #eef4f5;
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.observation-card-actions button:disabled {
   cursor: wait;
   opacity: 0.58;
 }
@@ -1054,6 +1073,11 @@ h3 {
 .line.trim {
   stroke: #6d5bd0;
   stroke-width: 2;
+}
+
+.line.trim.trim-gap {
+  opacity: 0.82;
+  stroke-dasharray: 5 6;
 }
 
 .trim-axis {
