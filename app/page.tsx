@@ -126,7 +126,7 @@ type ForecastSettings = {
   levelMax: number;
 };
 
-type ReviewPreset = "24h" | "week" | "month" | "all" | "custom";
+type ReviewPreset = "1h" | "3h" | "6h" | "24h" | "week" | "month" | "all" | "custom";
 
 type ReviewRange = {
   preset: ReviewPreset;
@@ -155,6 +155,9 @@ const defaultReviewRange: ReviewRange = {
   toDate: "",
 };
 const reviewPresets: { id: ReviewPreset; label: string }[] = [
+  { id: "1h", label: "1 h" },
+  { id: "3h", label: "3 h" },
+  { id: "6h", label: "6 h" },
   { id: "24h", label: "24 h" },
   { id: "week", label: "Letzte Woche" },
   { id: "month", label: "Letzter Monat" },
@@ -664,13 +667,23 @@ function reviewRangeToDomain(
 ) {
   const newest = history[history.length - 1]?.t ?? referenceTime;
   const oldest = history[0]?.t ?? newest - dayMs;
-  const max = Math.max(newest + sampleInterval, referenceTime);
+  const forecastHorizon = 2 * 60 * 60 * 1000;
+  const max = Math.max(newest + sampleInterval, newest + forecastHorizon);
 
+  if (range.preset === "1h") {
+    return { min: newest - 60 * 60 * 1000, max };
+  }
+  if (range.preset === "3h") {
+    return { min: newest - 3 * 60 * 60 * 1000, max };
+  }
+  if (range.preset === "6h") {
+    return { min: newest - 6 * 60 * 60 * 1000, max };
+  }
   if (range.preset === "week") {
-    return { min: max - 7 * dayMs, max };
+    return { min: newest - 7 * dayMs, max };
   }
   if (range.preset === "month") {
-    return { min: max - 30 * dayMs, max };
+    return { min: newest - 30 * dayMs, max };
   }
   if (range.preset === "all") {
     return { min: oldest, max };
@@ -687,6 +700,9 @@ function reviewRangeToDomain(
 }
 
 function reviewRangeHours(range: ReviewRange) {
+  if (range.preset === "1h") return 1;
+  if (range.preset === "3h") return 3;
+  if (range.preset === "6h") return 6;
   if (range.preset === "week") return 7 * 24;
   if (range.preset === "month") return 30 * 24;
   if (range.preset === "all") return 365 * 24;
