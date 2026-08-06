@@ -870,29 +870,6 @@ h3 {
 .forecast-stack {
   display: grid;
   gap: 14px;
-  min-width: min(100%, var(--chart-width, 860px));
-  width: max(100%, var(--chart-width, 860px));
-}
-
-.forecast-scroll {
-  min-width: 0;
-  overflow-x: auto;
-  padding-bottom: 8px;
-  scrollbar-color: rgba(33, 54, 63, 0.35) transparent;
-  scrollbar-width: thin;
-}
-
-.forecast-scroll::-webkit-scrollbar {
-  height: 8px;
-}
-
-.forecast-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.forecast-scroll::-webkit-scrollbar-thumb {
-  background: rgba(33, 54, 63, 0.26);
-  border-radius: 999px;
 }
 
 .forecast-chart {
@@ -1187,6 +1164,43 @@ h3 {
   min-width: 0;
   padding: 0 8px;
   width: 100%;
+}
+
+.time-zoom-control {
+  background: #f8fafb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.time-zoom-head,
+.time-zoom-scale {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.time-zoom-head span,
+.time-zoom-scale span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.time-zoom-head strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.time-zoom-control input[type="range"] {
+  accent-color: var(--teal);
+  width: 100%;
+}
+
+.time-zoom-control p {
+  margin-top: 2px;
 }
 
 .review-control p {

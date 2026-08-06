@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 type HydroValue = {
   value: number | null;
@@ -126,12 +126,17 @@ type ForecastSettings = {
   levelMax: number;
 };
 
-type ReviewPreset = "1h" | "3h" | "6h" | "24h" | "week" | "month" | "all" | "custom";
+type ReviewPreset = "12h" | "24h" | "week" | "month" | "all" | "custom";
 
 type ReviewRange = {
   preset: ReviewPreset;
   fromDate: string;
   toDate: string;
+};
+
+type TimeZoom = {
+  detail: number;
+  position: number;
 };
 
 const stationOrder = ["202283", "201574", "201624"];
@@ -154,10 +159,12 @@ const defaultReviewRange: ReviewRange = {
   fromDate: "",
   toDate: "",
 };
+const defaultTimeZoom: TimeZoom = {
+  detail: 0,
+  position: 100,
+};
 const reviewPresets: { id: ReviewPreset; label: string }[] = [
-  { id: "1h", label: "1 h" },
-  { id: "3h", label: "3 h" },
-  { id: "6h", label: "6 h" },
+  { id: "12h", label: "12 h" },
   { id: "24h", label: "24 h" },
   { id: "week", label: "Letzte Woche" },
   { id: "month", label: "Letzter Monat" },
@@ -338,11 +345,14 @@ function parseEndDate(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function dateTimeInputValue(value: string, endOfDay = false) {
+function dateInputValue(value: string) {
   if (!value) return "";
-  if (value.includes("T")) return value.slice(0, 16);
-  const parsed = new Date(`${value}T${endOfDay ? "23:59" : "00:00"}`).getTime();
-  return Number.isFinite(parsed) ? formatDateTimeInput(parsed) : "";
+  if (!value.includes("T")) return value;
+  const parsed = new Date(value).getTime();
+  if (!Number.isFinite(parsed)) return "";
+  const date = new Date(parsed);
+  const localTime = parsed - date.getTimezoneOffset() * 60 * 1000;
+  return new Date(localTime).toISOString().slice(0, 10);
 }
 
 function formatAxisTime(value: number, span: number) {
@@ -392,9 +402,26 @@ function timeAxisTicks(minT: number, maxT: number) {
   );
 }
 
-function chartWidthForDomain(domain: TimeDomain) {
-  const spanHours = (domain.max - domain.min) / (60 * 60 * 1000);
-  return Math.round(Math.min(7200, Math.max(860, spanHours * 78 + 120)));
+function zoomTimeDomain(domain: TimeDomain, zoom: TimeZoom) {
+  const span = Math.max(1, domain.max - domain.min);
+  const minSpan = Math.min(span, 60 * 60 * 1000);
+  const detail = clamp(zoom.detail, 0, 100) / 100;
+  const zoomFactor = Math.pow(span / Math.max(1, minSpan), detail);
+  const visibleSpan = span / zoomFactor;
+  const maxOffset = Math.max(0, span - visibleSpan);
+  const offset = maxOffset * (clamp(zoom.position, 0, 100) / 100);
+
+  return {
+    min: domain.min + offset,
+    max: domain.min + offset + visibleSpan,
+  };
+}
+
+function formatDuration(value: number) {
+  const hours = value / (60 * 60 * 1000);
+  if (hours < 2) return `${Math.round(hours * 60)} min`;
+  if (hours < 48) return `${formatNumber(hours, hours < 10 ? 1 : 0)} h`;
+  return `${formatNumber(hours / 24, hours < 24 * 10 ? 1 : 0)} Tage`;
 }
 
 function formatUnit(unit: string) {
@@ -718,14 +745,8 @@ function reviewRangeToDomain(
   const forecastHorizon = 2 * 60 * 60 * 1000;
   const max = Math.max(newest + sampleInterval, newest + forecastHorizon);
 
-  if (range.preset === "1h") {
-    return { min: newest - 60 * 60 * 1000, max };
-  }
-  if (range.preset === "3h") {
-    return { min: newest - 3 * 60 * 60 * 1000, max };
-  }
-  if (range.preset === "6h") {
-    return { min: newest - 6 * 60 * 60 * 1000, max };
+  if (range.preset === "12h") {
+    return { min: newest - 12 * 60 * 60 * 1000, max };
   }
   if (range.preset === "week") {
     return { min: newest - 7 * dayMs, max };
@@ -748,9 +769,7 @@ function reviewRangeToDomain(
 }
 
 function reviewRangeHours(range: ReviewRange) {
-  if (range.preset === "1h") return 1;
-  if (range.preset === "3h") return 3;
-  if (range.preset === "6h") return 6;
+  if (range.preset === "12h") return 12;
   if (range.preset === "week") return 7 * 24;
   if (range.preset === "month") return 30 * 24;
   if (range.preset === "all") return 365 * 24;
@@ -1047,6 +1066,7 @@ export default function Home() {
   const [reviewRange, setReviewRange] = useState<ReviewRange>(() =>
     readStoredReviewRange(),
   );
+  const [timeZoom, setTimeZoom] = useState<TimeZoom>(defaultTimeZoom);
   const [observations, setObservations] = useState<SurfObservation[]>([]);
   const [observationForm, setObservationForm] = useState(() => ({
     observedAt: formatDateTimeInput(Date.now()),
@@ -1272,7 +1292,7 @@ export default function Home() {
   );
   const waveTime = mostRecent ?? forecastHistory[forecastHistory.length - 1]?.t ?? nowMs;
   const lastMeasurementTime = newestHistoryPoint ?? waveTime;
-  const chartTimeDomain = reviewRangeToDomain(
+  const baseTimeDomain = reviewRangeToDomain(
     reviewRange,
     forecastHistory,
     Math.max(
@@ -1280,7 +1300,7 @@ export default function Home() {
       lastMeasurementTime + sampleInterval,
     ),
   );
-  const chartWidth = chartWidthForDomain(chartTimeDomain);
+  const chartTimeDomain = zoomTimeDomain(baseTimeDomain, timeZoom);
   const visibleHistoryPoints = forecastHistory.filter(
     (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
   );
@@ -1654,19 +1674,11 @@ export default function Home() {
         </div>
 
         <div className="forecast-layout">
-          <div
-            className="forecast-scroll"
-            aria-label="Scrollable Surfforecast Diagramme"
-          >
-            <div
-              className="forecast-stack"
-              style={{ "--chart-width": `${chartWidth}px` } as CSSProperties}
-            >
+          <div className="forecast-stack">
             <SurfForecastChart
               history={forecastHistory}
               forecast={forecastLine}
               timeDomain={chartTimeDomain}
-              chartWidth={chartWidth}
               markerTime={lastMeasurementTime}
               surfMin={Math.min(forecastSettings.surfMin, forecastSettings.surfMax)}
               surfMax={Math.max(forecastSettings.surfMin, forecastSettings.surfMax)}
@@ -1675,18 +1687,15 @@ export default function Home() {
             <SurfDeltaChart
               delta={deltaLine}
               timeDomain={chartTimeDomain}
-              chartWidth={chartWidth}
               markerTime={waveTime}
             />
             <SurfLevelChart
               history={forecastHistory}
               timeDomain={chartTimeDomain}
-              chartWidth={chartWidth}
               markerTime={lastMeasurementTime}
               levelMin={Math.min(forecastSettings.levelMin, forecastSettings.levelMax)}
               levelMax={Math.max(forecastSettings.levelMin, forecastSettings.levelMax)}
             />
-            </div>
           </div>
 
           <aside className="forecast-controls" aria-label="Forecast Einstellungen">
@@ -1696,7 +1705,17 @@ export default function Home() {
               totalHistoryCount={forecastHistory.length}
               fromLabel={formatDate(chartTimeDomain.min)}
               toLabel={formatDate(chartTimeDomain.max)}
-              onChange={setReviewRange}
+              baseDomain={baseTimeDomain}
+              visibleDomain={chartTimeDomain}
+              zoom={timeZoom}
+              onChange={(nextRange) => {
+                setReviewRange(nextRange);
+                setTimeZoom({
+                  ...defaultTimeZoom,
+                  position: nextRange.preset === "custom" ? 0 : 100,
+                });
+              }}
+              onZoomChange={setTimeZoom}
             />
             <RuntimeControl
               label="Krössbach → Reichenau"
@@ -2187,7 +2206,6 @@ function SurfForecastChart({
   history,
   forecast,
   timeDomain,
-  chartWidth,
   markerTime,
   surfMin,
   surfMax,
@@ -2196,7 +2214,6 @@ function SurfForecastChart({
   history: HistoryPoint[];
   forecast: { t: number; value: number | null }[];
   timeDomain: TimeDomain;
-  chartWidth: number;
   markerTime: number;
   surfMin: number;
   surfMax: number;
@@ -2260,7 +2277,7 @@ function SurfForecastChart({
   const valueRange = Math.max(1, rawMaxValue - rawMinValue);
   const minValue = rawMinValue - valueRange * 0.08;
   const maxValue = rawMaxValue + valueRange * 0.12;
-  const width = chartWidth;
+  const width = 820;
   const height = 360;
   const plot = { left: 58, top: 20, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
@@ -2433,12 +2450,10 @@ function SurfForecastChart({
 function SurfDeltaChart({
   delta,
   timeDomain,
-  chartWidth,
   markerTime,
 }: {
   delta: { t: number; value: number | null }[];
   timeDomain: TimeDomain;
-  chartWidth: number;
   markerTime: number;
 }) {
   const inTimeDomain = (point: { t: number }) =>
@@ -2452,7 +2467,7 @@ function SurfDeltaChart({
   const maxAbs = Math.max(0.8, ...values.map((value) => Math.abs(value))) * 1.18;
   const minValue = -maxAbs;
   const maxValue = maxAbs;
-  const width = chartWidth;
+  const width = 820;
   const height = 250;
   const plot = { left: 58, top: 44, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
@@ -2551,14 +2566,12 @@ function SurfDeltaChart({
 function SurfLevelChart({
   history,
   timeDomain,
-  chartWidth,
   markerTime,
   levelMin,
   levelMax,
 }: {
   history: HistoryPoint[];
   timeDomain: TimeDomain;
-  chartWidth: number;
   markerTime: number;
   levelMin: number;
   levelMax: number;
@@ -2596,7 +2609,7 @@ function SurfLevelChart({
   const valueRange = Math.max(1, rawMaxValue - rawMinValue);
   const minValue = Math.max(0, rawMinValue - valueRange * 0.08);
   const maxValue = rawMaxValue + valueRange * 0.12;
-  const width = chartWidth;
+  const width = 820;
   const height = 300;
   const plot = { left: 58, top: 26, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
@@ -2716,15 +2729,27 @@ function ReviewRangeControl({
   totalHistoryCount,
   fromLabel,
   toLabel,
+  baseDomain,
+  visibleDomain,
+  zoom,
   onChange,
+  onZoomChange,
 }: {
   range: ReviewRange;
   historyCount: number;
   totalHistoryCount: number;
   fromLabel: string;
   toLabel: string;
+  baseDomain: TimeDomain;
+  visibleDomain: TimeDomain;
+  zoom: TimeZoom;
   onChange: (range: ReviewRange) => void;
+  onZoomChange: (zoom: TimeZoom) => void;
 }) {
+  const baseSpan = baseDomain.max - baseDomain.min;
+  const visibleSpan = visibleDomain.max - visibleDomain.min;
+  const canMove = visibleSpan < baseSpan - sampleInterval;
+
   return (
     <div className="review-control">
       <span>Rückblick</span>
@@ -2747,11 +2772,10 @@ function ReviewRangeControl({
       </div>
       <div className="date-range">
         <label>
-          <span>Von Datum/Uhrzeit</span>
+          <span>Von Datum</span>
           <input
-            type="datetime-local"
-            step={900}
-            value={dateTimeInputValue(range.fromDate)}
+            type="date"
+            value={dateInputValue(range.fromDate)}
             onChange={(event) =>
               onChange({
                 ...range,
@@ -2762,11 +2786,10 @@ function ReviewRangeControl({
           />
         </label>
         <label>
-          <span>Bis Datum/Uhrzeit</span>
+          <span>Bis Datum</span>
           <input
-            type="datetime-local"
-            step={900}
-            value={dateTimeInputValue(range.toDate, true)}
+            type="date"
+            value={dateInputValue(range.toDate)}
             onChange={(event) =>
               onChange({
                 ...range,
@@ -2777,9 +2800,55 @@ function ReviewRangeControl({
           />
         </label>
       </div>
+      <div className="time-zoom-control">
+        <div className="time-zoom-head">
+          <span>Zeitachse</span>
+          <strong>{formatDuration(visibleSpan)}</strong>
+        </div>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={zoom.detail}
+          aria-label="Zeitachse vergrößern oder verkleinern"
+          onChange={(event) =>
+            onZoomChange({
+              ...zoom,
+              detail: Number(event.target.value),
+            })
+          }
+        />
+        <div className="time-zoom-scale">
+          <span>Übersicht</span>
+          <span>Detail</span>
+        </div>
+        {canMove ? (
+          <>
+            <div className="time-zoom-head">
+              <span>Position</span>
+              <strong>{formatDate(visibleDomain.min)}</strong>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={zoom.position}
+              aria-label="Sichtbaren Zeitraum verschieben"
+              onChange={(event) =>
+                onZoomChange({
+                  ...zoom,
+                  position: Number(event.target.value),
+                })
+              }
+            />
+          </>
+        ) : null}
       <p>
         {historyCount} von {totalHistoryCount} Punkten · {fromLabel} bis {toLabel}
       </p>
+      </div>
     </div>
   );
 }
