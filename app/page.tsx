@@ -3,10 +3,10 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 
 type HydroValue = {
@@ -133,7 +133,7 @@ type ForecastSettings = {
   levelMax: number;
 };
 
-type ReviewPreset = "12h" | "24h" | "week" | "month" | "all" | "custom";
+type ReviewPreset = "12h" | "24h" | "week" | "month" | "year" | "all" | "custom";
 
 type ReviewRange = {
   preset: ReviewPreset;
@@ -180,6 +180,7 @@ const reviewPresets: { id: ReviewPreset; label: string }[] = [
   { id: "24h", label: "24 h" },
   { id: "week", label: "Letzte Woche" },
   { id: "month", label: "Letzter Monat" },
+  { id: "year", label: "Jahr" },
   { id: "all", label: "Alle Daten" },
   { id: "custom", label: "Zeitraum" },
 ];
@@ -427,13 +428,6 @@ function zoomTimeDomain(domain: TimeDomain, zoom: TimeZoom) {
     min: domain.min + offset,
     max: domain.min + offset + visibleSpan,
   };
-}
-
-function formatDuration(value: number) {
-  const hours = value / (60 * 60 * 1000);
-  if (hours < 2) return `${Math.round(hours * 60)} min`;
-  if (hours < 48) return `${formatNumber(hours, hours < 10 ? 1 : 0)} h`;
-  return `${formatNumber(hours / 24, hours < 24 * 10 ? 1 : 0)} Tage`;
 }
 
 function formatUnit(unit: string) {
@@ -766,6 +760,9 @@ function reviewRangeToDomain(
   if (range.preset === "month") {
     return { min: newest - 30 * dayMs, max };
   }
+  if (range.preset === "year") {
+    return { min: newest - 365 * dayMs, max };
+  }
   if (range.preset === "all") {
     return { min: oldest, max };
   }
@@ -784,6 +781,7 @@ function reviewRangeHours(range: ReviewRange) {
   if (range.preset === "12h") return 12;
   if (range.preset === "week") return 7 * 24;
   if (range.preset === "month") return 30 * 24;
+  if (range.preset === "year") return 365 * 24;
   if (range.preset === "all") return 365 * 24;
   if (range.preset === "custom") {
     const from = parseStartDate(range.fromDate);
@@ -1080,6 +1078,13 @@ export default function Home() {
   );
   const [timeZoom, setTimeZoom] = useState<TimeZoom>(defaultTimeZoom);
   const [timeDrag, setTimeDrag] = useState<TimeDrag | null>(null);
+  const [chartHover, setChartHover] = useState(false);
+  const chartNavigatorRef = useRef<HTMLDivElement | null>(null);
+  const chartInteractionRef = useRef({
+    canMoveTimeAxis: false,
+    hasZoomableTimeAxis: false,
+    timeZoom: defaultTimeZoom,
+  });
   const [observations, setObservations] = useState<SurfObservation[]>([]);
   const [observationForm, setObservationForm] = useState(() => ({
     observedAt: formatDateTimeInput(Date.now()),
@@ -1434,46 +1439,172 @@ export default function Home() {
     forecastSettings.lagPuig * 60 * 1000;
   const latestForecast =
     forecastLine.findLast((point) => point.value !== null)?.value ?? upstreamFlow;
-  const shiftTimeAxis = (deltaPercent: number) => {
-    if (!canMoveTimeAxis) return;
-    setTimeZoom((current) => ({
-      ...current,
-      position: clamp(current.position + deltaPercent, 0, 100),
-    }));
-  };
-  const handleChartWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    if (!hasZoomableTimeAxis) return;
-    const deltaX = event.deltaX + (event.shiftKey ? event.deltaY : 0);
-    const horizontalScroll = Math.abs(deltaX) > Math.abs(event.deltaY);
+  useEffect(() => {
+    chartInteractionRef.current = {
+      canMoveTimeAxis,
+      hasZoomableTimeAxis,
+      timeZoom,
+    };
+  }, [canMoveTimeAxis, hasZoomableTimeAxis, timeZoom]);
 
-    event.preventDefault();
+  useEffect(() => {
+    if (!chartHover) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
 
-    if (horizontalScroll && canMoveTimeAxis) {
-      shiftTimeAxis(deltaX * 0.08);
-      return;
-    }
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [chartHover]);
 
-    setTimeZoom((current) => ({
-      ...current,
-      detail: clamp(current.detail - event.deltaY * 0.08, 0, 100),
-    }));
-  };
+  useEffect(() => {
+    const node = chartNavigatorRef.current;
+    if (!node) return undefined;
+
+    let touchGesture:
+      | {
+          mode: "pan";
+          startX: number;
+          startPosition: number;
+        }
+      | {
+          mode: "pinch";
+          startDistance: number;
+          startDetail: number;
+        }
+      | null = null;
+
+    const touchDistance = (touches: TouchList) => {
+      const first = touches[0];
+      const second = touches[1];
+      return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+    };
+
+    const handleNativeWheel = (event: WheelEvent) => {
+      const interaction = chartInteractionRef.current;
+      if (!interaction.hasZoomableTimeAxis) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const deltaX = event.deltaX + (event.shiftKey ? event.deltaY : 0);
+      const horizontalScroll = Math.abs(deltaX) > Math.abs(event.deltaY);
+
+      if (horizontalScroll && interaction.canMoveTimeAxis) {
+        setTimeZoom((current) => ({
+          ...current,
+          position: clamp(current.position + deltaX * 0.08, 0, 100),
+        }));
+        return;
+      }
+
+      setTimeZoom((current) => ({
+        ...current,
+        detail: clamp(current.detail - event.deltaY * 0.08, 0, 100),
+      }));
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      const interaction = chartInteractionRef.current;
+      if (!interaction.hasZoomableTimeAxis) return;
+
+      if (event.touches.length >= 2) {
+        event.preventDefault();
+        touchGesture = {
+          mode: "pinch",
+          startDistance: Math.max(1, touchDistance(event.touches)),
+          startDetail: interaction.timeZoom.detail,
+        };
+        return;
+      }
+
+      if (event.touches.length === 1 && interaction.canMoveTimeAxis) {
+        touchGesture = {
+          mode: "pan",
+          startX: event.touches[0].clientX,
+          startPosition: interaction.timeZoom.position,
+        };
+      }
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const interaction = chartInteractionRef.current;
+      if (!interaction.hasZoomableTimeAxis || !touchGesture) return;
+
+      if (event.touches.length >= 2 && touchGesture.mode === "pinch") {
+        event.preventDefault();
+        event.stopPropagation();
+        const ratio = touchDistance(event.touches) / touchGesture.startDistance;
+        setTimeZoom((current) => ({
+          ...current,
+          detail: clamp(touchGesture.startDetail + Math.log(ratio) * 48, 0, 100),
+        }));
+        return;
+      }
+
+      if (event.touches.length === 1 && touchGesture.mode === "pan") {
+        if (!interaction.canMoveTimeAxis) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const width = Math.max(1, node.clientWidth);
+        const deltaPercent =
+          ((touchGesture.startX - event.touches[0].clientX) / width) * 100;
+
+        setTimeZoom((current) => ({
+          ...current,
+          position: clamp(touchGesture.startPosition + deltaPercent, 0, 100),
+        }));
+      }
+    };
+
+    const clearTouchGesture = () => {
+      touchGesture = null;
+    };
+
+    node.addEventListener("wheel", handleNativeWheel, { passive: false });
+    node.addEventListener("touchstart", handleTouchStart, { passive: false });
+    node.addEventListener("touchmove", handleTouchMove, { passive: false });
+    node.addEventListener("touchend", clearTouchGesture, { passive: false });
+    node.addEventListener("touchcancel", clearTouchGesture, { passive: false });
+
+    return () => {
+      node.removeEventListener("wheel", handleNativeWheel);
+      node.removeEventListener("touchstart", handleTouchStart);
+      node.removeEventListener("touchmove", handleTouchMove);
+      node.removeEventListener("touchend", clearTouchGesture);
+      node.removeEventListener("touchcancel", clearTouchGesture);
+    };
+  }, []);
+
   const handleChartPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") return;
     if (!hasZoomableTimeAxis) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    setTimeDrag({ x: event.clientX, position: timeZoom.position });
+    const startedFromOverview = !canMoveTimeAxis;
+    const position = startedFromOverview ? 50 : timeZoom.position;
+    if (startedFromOverview) {
+      setTimeZoom((current) => ({
+        ...current,
+        detail: Math.max(current.detail, 55),
+        position,
+      }));
+    }
+    setTimeDrag({ x: event.clientX, position });
   };
   const handleChartPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") return;
     if (!timeDrag) return;
+    const width = Math.max(1, event.currentTarget.clientWidth);
+    const deltaPercent = ((timeDrag.x - event.clientX) / width) * 100;
+
     if (!canMoveTimeAxis) {
       setTimeZoom((current) => ({
         ...current,
         detail: Math.max(current.detail, 55),
+        position: clamp(timeDrag.position + deltaPercent, 0, 100),
       }));
       return;
     }
-    const width = Math.max(1, event.currentTarget.clientWidth);
-    const deltaPercent = ((timeDrag.x - event.clientX) / width) * 100;
 
     setTimeZoom((current) => ({
       ...current,
@@ -1595,9 +1726,25 @@ export default function Home() {
 
         <div className="forecast-layout">
           <div className="forecast-main">
+            <ChartTimeControl
+              range={reviewRange}
+              historyCount={visibleHistoryPoints.length}
+              totalHistoryCount={forecastHistory.length}
+              fromLabel={formatDate(chartTimeDomain.min)}
+              toLabel={formatDate(chartTimeDomain.max)}
+              onChange={(nextRange) => {
+                setReviewRange(nextRange);
+                setTimeZoom({
+                  ...defaultTimeZoom,
+                  position: nextRange.preset === "custom" ? 0 : 100,
+                });
+              }}
+            />
             <div
               className={`chart-navigator ${timeDrag ? "dragging" : ""}`}
-              onWheel={handleChartWheel}
+              ref={chartNavigatorRef}
+              onMouseEnter={() => setChartHover(true)}
+              onMouseLeave={() => setChartHover(false)}
               onPointerDown={handleChartPointerDown}
               onPointerMove={handleChartPointerMove}
               onPointerUp={stopChartDrag}
@@ -1780,24 +1927,6 @@ export default function Home() {
           </div>
 
           <aside className="forecast-controls" aria-label="Forecast Einstellungen">
-            <ReviewRangeControl
-              range={reviewRange}
-              historyCount={visibleHistoryPoints.length}
-              totalHistoryCount={forecastHistory.length}
-              fromLabel={formatDate(chartTimeDomain.min)}
-              toLabel={formatDate(chartTimeDomain.max)}
-              baseDomain={baseTimeDomain}
-              visibleDomain={chartTimeDomain}
-              zoom={timeZoom}
-              onChange={(nextRange) => {
-                setReviewRange(nextRange);
-                setTimeZoom({
-                  ...defaultTimeZoom,
-                  position: nextRange.preset === "custom" ? 0 : 100,
-                });
-              }}
-              onZoomChange={setTimeZoom}
-            />
             <RuntimeControl
               label="Krössbach → Reichenau"
               hint="Laufzeit, bis die Hochwasserwelle aus Krössbach in Reichenau ankommt."
@@ -2804,36 +2933,27 @@ function linePath(
     .join(" ");
 }
 
-function ReviewRangeControl({
+function ChartTimeControl({
   range,
   historyCount,
   totalHistoryCount,
   fromLabel,
   toLabel,
-  baseDomain,
-  visibleDomain,
-  zoom,
   onChange,
-  onZoomChange,
 }: {
   range: ReviewRange;
   historyCount: number;
   totalHistoryCount: number;
   fromLabel: string;
   toLabel: string;
-  baseDomain: TimeDomain;
-  visibleDomain: TimeDomain;
-  zoom: TimeZoom;
   onChange: (range: ReviewRange) => void;
-  onZoomChange: (zoom: TimeZoom) => void;
 }) {
-  const baseSpan = baseDomain.max - baseDomain.min;
-  const visibleSpan = visibleDomain.max - visibleDomain.min;
-  const canMove = visibleSpan < baseSpan - sampleInterval;
-
   return (
-    <div className="review-control">
-      <span>Rückblick</span>
+    <div className="chart-time-control">
+      <div className="chart-time-head">
+        <span>Zeitbereich</span>
+        <strong>{fromLabel} bis {toLabel}</strong>
+      </div>
       <div className="review-presets" role="group" aria-label="Rückblick wählen">
         {reviewPresets.map((preset) => (
           <button
@@ -2851,7 +2971,8 @@ function ReviewRangeControl({
           </button>
         ))}
       </div>
-      <div className="date-range">
+      {range.preset === "custom" ? (
+        <div className="date-range">
         <label>
           <span>Von Datum</span>
           <input
@@ -2880,56 +3001,11 @@ function ReviewRangeControl({
             }
           />
         </label>
-      </div>
-      <div className="time-zoom-control">
-        <div className="time-zoom-head">
-          <span>Zeitachse</span>
-          <strong>{formatDuration(visibleSpan)}</strong>
         </div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          value={zoom.detail}
-          aria-label="Zeitachse vergrößern oder verkleinern"
-          onChange={(event) =>
-            onZoomChange({
-              ...zoom,
-              detail: Number(event.target.value),
-            })
-          }
-        />
-        <div className="time-zoom-scale">
-          <span>Übersicht</span>
-          <span>Detail</span>
-        </div>
-        {canMove ? (
-          <>
-            <div className="time-zoom-head">
-              <span>Position</span>
-              <strong>{formatDate(visibleDomain.min)}</strong>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={zoom.position}
-              aria-label="Sichtbaren Zeitraum verschieben"
-              onChange={(event) =>
-                onZoomChange({
-                  ...zoom,
-                  position: Number(event.target.value),
-                })
-              }
-            />
-          </>
-        ) : null}
+      ) : null}
       <p>
-        {historyCount} von {totalHistoryCount} Punkten · {fromLabel} bis {toLabel}
+        {historyCount} von {totalHistoryCount} Punkten · Mausrad/Pinch zoomt, Ziehen/Wischen verschiebt.
       </p>
-      </div>
     </div>
   );
 }

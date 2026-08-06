@@ -876,7 +876,9 @@ h3 {
 .chart-navigator {
   cursor: grab;
   min-width: 0;
-  touch-action: pan-y;
+  touch-action: none;
+  overscroll-behavior: contain;
+  user-select: none;
 }
 
 .chart-navigator.dragging {
@@ -892,6 +894,49 @@ h3 {
   background: transparent;
   border: 0;
   padding: 2px 0 0;
+}
+
+.chart-time-control {
+  background: #f8fafb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.chart-time-head {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.chart-time-head span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.chart-time-head strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.chart-time-control .review-presets {
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+}
+
+.chart-time-control .date-range {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chart-time-control p {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  margin: 0;
 }
 
 .forecast-chart {
@@ -1124,16 +1169,6 @@ h3 {
   padding: 16px;
 }
 
-.review-control {
-  display: grid;
-  gap: 10px;
-}
-
-.review-control > span {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
 .review-presets {
   display: grid;
   gap: 6px;
@@ -1186,50 +1221,6 @@ h3 {
   min-width: 0;
   padding: 0 8px;
   width: 100%;
-}
-
-.time-zoom-control {
-  background: #f8fafb;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-}
-
-.time-zoom-head,
-.time-zoom-scale {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-}
-
-.time-zoom-head span,
-.time-zoom-scale span {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-}
-
-.time-zoom-head strong {
-  color: var(--ink);
-  font-size: 0.82rem;
-}
-
-.time-zoom-control input[type="range"] {
-  accent-color: var(--teal);
-  width: 100%;
-}
-
-.time-zoom-control p {
-  margin-top: 2px;
-}
-
-.review-control p {
-  color: var(--muted);
-  font-size: 0.76rem;
-  line-height: 1.35;
-  margin: 0;
 }
 
 .runtime-control {
@@ -1692,10 +1683,19 @@ h3 {
   .section-heading,
   .forecast-heading,
   .quality-heading,
+  .chart-time-head,
   .observation-heading,
   .archive-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .chart-time-head strong {
+    text-align: left;
+  }
+
+  .chart-time-control .date-range {
+    grid-template-columns: 1fr;
   }
 
   .runtime-correlation-head {
