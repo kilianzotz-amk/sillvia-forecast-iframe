@@ -870,6 +870,29 @@ h3 {
 .forecast-stack {
   display: grid;
   gap: 14px;
+  min-width: min(100%, var(--chart-width, 860px));
+  width: max(100%, var(--chart-width, 860px));
+}
+
+.forecast-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-color: rgba(33, 54, 63, 0.35) transparent;
+  scrollbar-width: thin;
+}
+
+.forecast-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+
+.forecast-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.forecast-scroll::-webkit-scrollbar-thumb {
+  background: rgba(33, 54, 63, 0.26);
+  border-radius: 999px;
 }
 
 .forecast-chart {
@@ -1139,7 +1162,7 @@ h3 {
 .date-range {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .date-range label {

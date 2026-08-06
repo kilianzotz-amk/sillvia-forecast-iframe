@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 
 type HydroValue = {
   value: number | null;
@@ -162,7 +162,7 @@ const reviewPresets: { id: ReviewPreset; label: string }[] = [
   { id: "week", label: "Letzte Woche" },
   { id: "month", label: "Letzter Monat" },
   { id: "all", label: "Alle Daten" },
-  { id: "custom", label: "Datum" },
+  { id: "custom", label: "Zeitraum" },
 ];
 const spotInsightSummary = {
   sample: "27 Spotinfos aus 36 SurfInn Sessions",
@@ -329,13 +329,20 @@ function parseDateTimeInput(value: string) {
 }
 
 function parseStartDate(value: string) {
-  const parsed = new Date(`${value}T00:00`).getTime();
+  const parsed = new Date(value.includes("T") ? value : `${value}T00:00`).getTime();
   return Number.isFinite(parsed) ? parsed : null;
 }
 
 function parseEndDate(value: string) {
-  const parsed = new Date(`${value}T23:59:59`).getTime();
+  const parsed = new Date(value.includes("T") ? value : `${value}T23:59:59`).getTime();
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function dateTimeInputValue(value: string, endOfDay = false) {
+  if (!value) return "";
+  if (value.includes("T")) return value.slice(0, 16);
+  const parsed = new Date(`${value}T${endOfDay ? "23:59" : "00:00"}`).getTime();
+  return Number.isFinite(parsed) ? formatDateTimeInput(parsed) : "";
 }
 
 function formatAxisTime(value: number, span: number) {
@@ -383,6 +390,11 @@ function timeAxisTicks(minT: number, maxT: number) {
   return Array.from({ length: 5 }, (_, index) =>
     minT + ((maxT - minT) / 4) * index,
   );
+}
+
+function chartWidthForDomain(domain: TimeDomain) {
+  const spanHours = (domain.max - domain.min) / (60 * 60 * 1000);
+  return Math.round(Math.min(7200, Math.max(860, spanHours * 78 + 120)));
 }
 
 function formatUnit(unit: string) {
@@ -1268,6 +1280,7 @@ export default function Home() {
       lastMeasurementTime + sampleInterval,
     ),
   );
+  const chartWidth = chartWidthForDomain(chartTimeDomain);
   const visibleHistoryPoints = forecastHistory.filter(
     (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
   );
@@ -1641,11 +1654,19 @@ export default function Home() {
         </div>
 
         <div className="forecast-layout">
-          <div className="forecast-stack">
+          <div
+            className="forecast-scroll"
+            aria-label="Scrollable Surfforecast Diagramme"
+          >
+            <div
+              className="forecast-stack"
+              style={{ "--chart-width": `${chartWidth}px` } as CSSProperties}
+            >
             <SurfForecastChart
               history={forecastHistory}
               forecast={forecastLine}
               timeDomain={chartTimeDomain}
+              chartWidth={chartWidth}
               markerTime={lastMeasurementTime}
               surfMin={Math.min(forecastSettings.surfMin, forecastSettings.surfMax)}
               surfMax={Math.max(forecastSettings.surfMin, forecastSettings.surfMax)}
@@ -1654,15 +1675,18 @@ export default function Home() {
             <SurfDeltaChart
               delta={deltaLine}
               timeDomain={chartTimeDomain}
+              chartWidth={chartWidth}
               markerTime={waveTime}
             />
             <SurfLevelChart
               history={forecastHistory}
               timeDomain={chartTimeDomain}
+              chartWidth={chartWidth}
               markerTime={lastMeasurementTime}
               levelMin={Math.min(forecastSettings.levelMin, forecastSettings.levelMax)}
               levelMax={Math.max(forecastSettings.levelMin, forecastSettings.levelMax)}
             />
+            </div>
           </div>
 
           <aside className="forecast-controls" aria-label="Forecast Einstellungen">
@@ -2163,6 +2187,7 @@ function SurfForecastChart({
   history,
   forecast,
   timeDomain,
+  chartWidth,
   markerTime,
   surfMin,
   surfMax,
@@ -2171,6 +2196,7 @@ function SurfForecastChart({
   history: HistoryPoint[];
   forecast: { t: number; value: number | null }[];
   timeDomain: TimeDomain;
+  chartWidth: number;
   markerTime: number;
   surfMin: number;
   surfMax: number;
@@ -2234,7 +2260,7 @@ function SurfForecastChart({
   const valueRange = Math.max(1, rawMaxValue - rawMinValue);
   const minValue = rawMinValue - valueRange * 0.08;
   const maxValue = rawMaxValue + valueRange * 0.12;
-  const width = 820;
+  const width = chartWidth;
   const height = 360;
   const plot = { left: 58, top: 20, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
@@ -2407,10 +2433,12 @@ function SurfForecastChart({
 function SurfDeltaChart({
   delta,
   timeDomain,
+  chartWidth,
   markerTime,
 }: {
   delta: { t: number; value: number | null }[];
   timeDomain: TimeDomain;
+  chartWidth: number;
   markerTime: number;
 }) {
   const inTimeDomain = (point: { t: number }) =>
@@ -2424,7 +2452,7 @@ function SurfDeltaChart({
   const maxAbs = Math.max(0.8, ...values.map((value) => Math.abs(value))) * 1.18;
   const minValue = -maxAbs;
   const maxValue = maxAbs;
-  const width = 820;
+  const width = chartWidth;
   const height = 250;
   const plot = { left: 58, top: 44, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
@@ -2523,12 +2551,14 @@ function SurfDeltaChart({
 function SurfLevelChart({
   history,
   timeDomain,
+  chartWidth,
   markerTime,
   levelMin,
   levelMax,
 }: {
   history: HistoryPoint[];
   timeDomain: TimeDomain;
+  chartWidth: number;
   markerTime: number;
   levelMin: number;
   levelMax: number;
@@ -2566,7 +2596,7 @@ function SurfLevelChart({
   const valueRange = Math.max(1, rawMaxValue - rawMinValue);
   const minValue = Math.max(0, rawMinValue - valueRange * 0.08);
   const maxValue = rawMaxValue + valueRange * 0.12;
-  const width = 820;
+  const width = chartWidth;
   const height = 300;
   const plot = { left: 58, top: 26, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
@@ -2717,10 +2747,11 @@ function ReviewRangeControl({
       </div>
       <div className="date-range">
         <label>
-          <span>Von</span>
+          <span>Von Datum/Uhrzeit</span>
           <input
-            type="date"
-            value={range.fromDate}
+            type="datetime-local"
+            step={900}
+            value={dateTimeInputValue(range.fromDate)}
             onChange={(event) =>
               onChange({
                 ...range,
@@ -2731,10 +2762,11 @@ function ReviewRangeControl({
           />
         </label>
         <label>
-          <span>Bis</span>
+          <span>Bis Datum/Uhrzeit</span>
           <input
-            type="date"
-            value={range.toDate}
+            type="datetime-local"
+            step={900}
+            value={dateTimeInputValue(range.toDate, true)}
             onChange={(event) =>
               onChange({
                 ...range,
