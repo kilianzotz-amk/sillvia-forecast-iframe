@@ -7,6 +7,7 @@ import {
   useState,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 
 type HydroValue = {
@@ -150,6 +151,20 @@ type TimeDrag = {
   x: number;
   position: number;
 };
+
+type FlowSeriesKey =
+  | "trim"
+  | "kroessbach"
+  | "puig"
+  | "upstream"
+  | "reichenau"
+  | "forecast"
+  | "session"
+  | "range";
+
+type DeltaSeriesKey = "delta";
+
+type LevelSeriesKey = "kroessbach" | "puig" | "reichenau" | "range";
 
 const stationOrder = ["202283", "201574", "201624"];
 const historyStorageKey = "sill-surf-forecast-history-v1";
@@ -478,6 +493,15 @@ function pct(value: number | null, target: number | null) {
 
 function clamp(value: number, min = 0, max = 100) {
   return Math.min(max, Math.max(min, value));
+}
+
+function ratingClass(quality: number) {
+  const rounded = Math.round(clamp(quality, 1, 5));
+  return `rating-${rounded}`;
+}
+
+function formatQuality(value: number) {
+  return formatNumber(value, 1);
 }
 
 function qualityLabel(score: number) {
@@ -1089,7 +1113,7 @@ export default function Home() {
   const [observationForm, setObservationForm] = useState(() => ({
     observedAt: formatDateTimeInput(Date.now()),
     trimCm: "",
-    quality: 3,
+    quality: 3.0,
     note: "",
   }));
   const [observationSaving, setObservationSaving] = useState(false);
@@ -1820,30 +1844,26 @@ export default function Home() {
                 </label>
                 <fieldset>
                   <legend>Welle</legend>
-                  <div className="rating-buttons">
-                    {[1, 2, 3, 4, 5].map((rating) => (
-                      <button
-                        key={rating}
-                        type="button"
-                        className={
-                          observationForm.quality === rating
-                            ? `active rating-${rating}`
-                            : `rating-${rating}`
-                        }
-                        onClick={() =>
-                          setObservationForm((current) => ({
-                            ...current,
-                            quality: rating,
-                          }))
-                        }
-                      >
-                        {rating}
-                      </button>
-                    ))}
+                  <div className="rating-slider">
+                    <strong>{formatQuality(observationForm.quality)}</strong>
+                    <input
+                      type="range"
+                      min="1"
+                      max="5"
+                      step="0.1"
+                      value={observationForm.quality}
+                      aria-label="Wellenqualität von 1,0 bis 5,0"
+                      onChange={(event) =>
+                        setObservationForm((current) => ({
+                          ...current,
+                          quality: Number(event.target.value),
+                        }))
+                      }
+                    />
                   </div>
                   <div className="rating-scale">
-                    <span>1 schlecht</span>
-                    <span>5 gut</span>
+                    <span>1,0 schlecht</span>
+                    <span>5,0 gut</span>
                   </div>
                 </fieldset>
                 <label>
@@ -1882,8 +1902,8 @@ export default function Home() {
                         Löschen
                       </button>
                     </div>
-                    <strong className={`quality-chip rating-${observation.quality}`}>
-                      {observation.quality}/5
+                    <strong className={`quality-chip ${ratingClass(observation.quality)}`}>
+                      {formatQuality(observation.quality)}/5
                     </strong>
                     <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
                     <dl>
@@ -2320,7 +2340,7 @@ function WaveQualityCard({
           <dt>Meister</dt>
           <dd>
             {quality.manual
-              ? `${quality.manual.quality}/5 · Trim: ${formatTrimCm(
+              ? `${formatQuality(quality.manual.quality)}/5 · Trim: ${formatTrimCm(
                   quality.manual.trimCm,
                   quality.manual.trim,
                 )}`
@@ -2429,6 +2449,18 @@ function SurfForecastChart({
   surfMax: number;
   observations: SurfObservation[];
 }) {
+  const [visible, setVisible] = useState<Record<FlowSeriesKey, boolean>>({
+    trim: true,
+    kroessbach: true,
+    puig: true,
+    upstream: true,
+    reichenau: true,
+    forecast: true,
+    session: true,
+    range: true,
+  });
+  const toggle = (key: FlowSeriesKey) =>
+    setVisible((current) => ({ ...current, [key]: !current[key] }));
   const observedKroessbach = history.map((point) => ({
     t: point.t,
     value: point.kroessbach,
@@ -2469,17 +2501,21 @@ function SurfForecastChart({
   const visibleReichenau = observedReichenau.filter(inTimeDomain);
   const visibleForecast = forecast.filter(inTimeDomain);
   const visibleSessionPoints = sessionPoints.filter(inTimeDomain);
+  const visibleTrimPoints = visibleSessionPoints
+    .map((point) => ({ t: point.t, value: point.trimCm }))
+    .filter((point): point is { t: number; value: number } => point.value !== null);
   const allValues = [
-    ...visibleKroessbach,
-    ...visiblePuig,
-    ...visibleUpstream,
-    ...visibleReichenau,
-    ...visibleForecast,
-    ...visibleSessionPoints,
+    ...(visible.kroessbach ? visibleKroessbach : []),
+    ...(visible.puig ? visiblePuig : []),
+    ...(visible.upstream ? visibleUpstream : []),
+    ...(visible.reichenau ? visibleReichenau : []),
+    ...(visible.forecast ? visibleForecast : []),
+    ...(visible.session ? visibleSessionPoints : []),
   ]
     .map((point) => point.value)
     .filter((value): value is number => typeof value === "number");
-  allValues.push(surfMin, surfMax);
+  if (visible.range) allValues.push(surfMin, surfMax);
+  const trimValues = visibleTrimPoints.map((point) => point.value);
   const minT = timeDomain.min;
   const maxT = timeDomain.max;
   const rawMinValue = Math.min(0, ...allValues);
@@ -2487,9 +2523,16 @@ function SurfForecastChart({
   const valueRange = Math.max(1, rawMaxValue - rawMinValue);
   const minValue = rawMinValue - valueRange * 0.08;
   const maxValue = rawMaxValue + valueRange * 0.12;
+  const rawTrimMin = Math.min(...trimValues, 220);
+  const rawTrimMax = Math.max(...trimValues, 230);
+  const trimRange = Math.max(1, rawTrimMax - rawTrimMin);
+  const trimMin = rawTrimMin - trimRange * 0.12;
+  const trimMax = rawTrimMax + trimRange * 0.12;
+  const showTrim = visible.trim;
   const width = 820;
-  const height = 360;
-  const plot = { left: 58, top: 20, right: 20, bottom: 42 };
+  const height = showTrim ? 430 : 360;
+  const trimPlot = { top: 24, height: 48 };
+  const plot = { left: 58, top: showTrim ? 100 : 20, right: 44, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -2498,6 +2541,9 @@ function SurfForecastChart({
     plot.top +
     plotHeight -
     ((value - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
+  const yTrim = (value: number) =>
+    trimPlot.top +
+    ((value - trimMin) / Math.max(1, trimMax - trimMin)) * trimPlot.height;
   const tickCount = 9;
   const tickStep = (maxValue - minValue) / (tickCount - 1);
   const yTicks = Array.from(
@@ -2522,6 +2568,51 @@ function SurfForecastChart({
     <div className="forecast-chart">
       <svg viewBox={`0 0 ${width} ${height}`} role="img">
         <title>Abfluss im Verhältnis zur Zeit</title>
+        {showTrim ? (
+          <g>
+            <text className="trim-title" x={plot.left} y={16}>
+              Trim cm
+            </text>
+            <line
+              className="trim-axis"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={trimPlot.top}
+              y2={trimPlot.top}
+            />
+            <line
+              className="trim-axis"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={trimPlot.top + trimPlot.height}
+              y2={trimPlot.top + trimPlot.height}
+            />
+            <text
+              className="trim-label"
+              x={width - plot.right + 8}
+              y={trimPlot.top + 4}
+            >
+              {formatNumber(trimMin, 0)}
+            </text>
+            <text
+              className="trim-label"
+              x={width - plot.right + 8}
+              y={trimPlot.top + trimPlot.height + 4}
+            >
+              {formatNumber(trimMax, 0)}
+            </text>
+            <path className="line trim" d={linePath(visibleTrimPoints, x, yTrim)} />
+            {visibleTrimPoints.map((point) => (
+              <circle
+                key={`${point.t}-${point.value}`}
+                className="trim-dot"
+                cx={x(point.t)}
+                cy={yTrim(point.value)}
+                r="3.5"
+              />
+            ))}
+          </g>
+        ) : null}
         {gridTicks.map((tick) => (
           <line
             key={tick.t}
@@ -2538,6 +2629,7 @@ function SurfForecastChart({
           y={surfY}
           width={plotWidth}
           height={surfHeight}
+          opacity={visible.range ? 1 : 0}
         />
         {yTicks.map((tick) => (
           <g key={tick}>
@@ -2591,25 +2683,33 @@ function SurfForecastChart({
             </text>
           </g>
         ) : null}
-        <path
-          className="line kroessbach"
-          d={linePath(visibleKroessbach, x, y)}
-        />
-        <path className="line puig" d={linePath(visiblePuig, x, y)} />
-        <path
-          className="line upstream"
-          d={linePath(visibleUpstream, x, y)}
-        />
-        <path
-          className="line reichenau"
-          d={linePath(visibleReichenau, x, y)}
-        />
-        <path className="line forecast" d={linePath(visibleForecast, x, y)} />
-        {visibleSessionPoints.map((point) =>
+        {visible.kroessbach ? (
+          <path
+            className="line kroessbach"
+            d={linePath(visibleKroessbach, x, y)}
+          />
+        ) : null}
+        {visible.puig ? <path className="line puig" d={linePath(visiblePuig, x, y)} /> : null}
+        {visible.upstream ? (
+          <path
+            className="line upstream"
+            d={linePath(visibleUpstream, x, y)}
+          />
+        ) : null}
+        {visible.reichenau ? (
+          <path
+            className="line reichenau"
+            d={linePath(visibleReichenau, x, y)}
+          />
+        ) : null}
+        {visible.forecast ? (
+          <path className="line forecast" d={linePath(visibleForecast, x, y)} />
+        ) : null}
+        {visible.session ? visibleSessionPoints.map((point) =>
           point.value === null ? null : (
             <g key={point.id}>
               <title>
-                {`Session ${formatTime(point.t)} · Qualität ${point.quality}/5 · Trim ${formatTrimCm(
+                {`Session ${formatTime(point.t)} · Qualität ${formatQuality(point.quality)}/5 · Trim ${formatTrimCm(
                   point.trimCm,
                   "",
                 )} · Abfluss K/P/R ${formatTriple(
@@ -2625,7 +2725,7 @@ function SurfForecastChart({
                 )} cm`}
               </title>
               <circle
-                className={`session-dot rating-${point.quality}`}
+                className={`session-dot ${ratingClass(point.quality)}`}
                 cx={x(point.t)}
                 cy={y(point.value)}
                 r="4"
@@ -2636,22 +2736,37 @@ function SurfForecastChart({
                 y={y(point.value) - 7}
                 textAnchor="middle"
               >
-                {point.quality}
+                {formatQuality(point.quality)}
               </text>
             </g>
           ),
-        )}
+        ) : null}
       </svg>
       <div className="chart-legend">
-        <span className="kroessbach">Krössbach</span>
-        <span className="puig">Puig</span>
-        <span className="upstream">Krössbach + Puig</span>
-        <span className="reichenau">Reichenau gemessen</span>
-        <span className="forecast">
+        <LegendToggle name="trim" active={visible.trim} onClick={() => toggle("trim")}>
+          Trim cm
+        </LegendToggle>
+        <LegendToggle name="kroessbach" active={visible.kroessbach} onClick={() => toggle("kroessbach")}>
+          Krössbach
+        </LegendToggle>
+        <LegendToggle name="puig" active={visible.puig} onClick={() => toggle("puig")}>
+          Puig
+        </LegendToggle>
+        <LegendToggle name="upstream" active={visible.upstream} onClick={() => toggle("upstream")}>
+          Krössbach + Puig
+        </LegendToggle>
+        <LegendToggle name="reichenau" active={visible.reichenau} onClick={() => toggle("reichenau")}>
+          Reichenau gemessen
+        </LegendToggle>
+        <LegendToggle name="forecast" active={visible.forecast} onClick={() => toggle("forecast")}>
           Forecast Reichenau <b>BETA</b>
-        </span>
-        <span className="session">Sessionwerte</span>
-        <span className="range">Zielbereich</span>
+        </LegendToggle>
+        <LegendToggle name="session" active={visible.session} onClick={() => toggle("session")}>
+          Sessionwerte
+        </LegendToggle>
+        <LegendToggle name="range" active={visible.range} onClick={() => toggle("range")}>
+          Zielbereich
+        </LegendToggle>
       </div>
     </div>
   );
@@ -2666,6 +2781,9 @@ function SurfDeltaChart({
   timeDomain: TimeDomain;
   markerTime: number;
 }) {
+  const [visible, setVisible] = useState<Record<DeltaSeriesKey, boolean>>({
+    delta: true,
+  });
   const inTimeDomain = (point: { t: number }) =>
     point.t >= timeDomain.min && point.t <= timeDomain.max;
   const visibleDelta = delta.filter(inTimeDomain);
@@ -2764,10 +2882,18 @@ function SurfDeltaChart({
             </text>
           </g>
         ) : null}
-        <path className="line delta" d={linePath(visibleDelta, x, y)} />
+        {visible.delta ? (
+          <path className="line delta" d={linePath(visibleDelta, x, y)} />
+        ) : null}
       </svg>
       <div className="chart-legend">
-        <span className="delta">Delta Welle</span>
+        <LegendToggle
+          name="delta"
+          active={visible.delta}
+          onClick={() => setVisible((current) => ({ ...current, delta: !current.delta }))}
+        >
+          Delta Welle
+        </LegendToggle>
       </div>
     </div>
   );
@@ -2786,6 +2912,14 @@ function SurfLevelChart({
   levelMin: number;
   levelMax: number;
 }) {
+  const [visible, setVisible] = useState<Record<LevelSeriesKey, boolean>>({
+    kroessbach: true,
+    puig: true,
+    reichenau: true,
+    range: true,
+  });
+  const toggle = (key: LevelSeriesKey) =>
+    setVisible((current) => ({ ...current, [key]: !current[key] }));
   const kroessbachLevel = history.map((point) => ({
     t: point.t,
     value: point.kroessbachLevel,
@@ -2804,14 +2938,14 @@ function SurfLevelChart({
   const visiblePuigLevel = puigLevel.filter(inTimeDomain);
   const visibleReichenauLevel = reichenauLevel.filter(inTimeDomain);
   const series = [
-    ...visibleKroessbachLevel,
-    ...visiblePuigLevel,
-    ...visibleReichenauLevel,
+    ...(visible.kroessbach ? visibleKroessbachLevel : []),
+    ...(visible.puig ? visiblePuigLevel : []),
+    ...(visible.reichenau ? visibleReichenauLevel : []),
   ];
   const allValues = series
     .map((point) => point.value)
     .filter((value): value is number => typeof value === "number");
-  allValues.push(levelMin, levelMax);
+  if (visible.range) allValues.push(levelMin, levelMax);
   const minT = timeDomain.min;
   const maxT = timeDomain.max;
   const rawMinValue = Math.min(...allValues, 0);
@@ -2865,6 +2999,7 @@ function SurfLevelChart({
           y={levelY}
           width={plotWidth}
           height={levelHeight}
+          opacity={visible.range ? 1 : 0}
         />
         {yTicks.map((tick) => (
           <g key={tick}>
@@ -2899,23 +3034,60 @@ function SurfLevelChart({
             </text>
           </g>
         ) : null}
-        <path
-          className="line kroessbach"
-          d={linePath(visibleKroessbachLevel, x, y)}
-        />
-        <path className="line puig" d={linePath(visiblePuigLevel, x, y)} />
-        <path
-          className="line reichenau"
-          d={linePath(visibleReichenauLevel, x, y)}
-        />
+        {visible.kroessbach ? (
+          <path
+            className="line kroessbach"
+            d={linePath(visibleKroessbachLevel, x, y)}
+          />
+        ) : null}
+        {visible.puig ? (
+          <path className="line puig" d={linePath(visiblePuigLevel, x, y)} />
+        ) : null}
+        {visible.reichenau ? (
+          <path
+            className="line reichenau"
+            d={linePath(visibleReichenauLevel, x, y)}
+          />
+        ) : null}
       </svg>
       <div className="chart-legend">
-        <span className="kroessbach">Krössbach Pegel</span>
-        <span className="puig">Puig Pegel</span>
-        <span className="reichenau">Reichenau Pegel</span>
-        <span className="level-range">Pegel-Zielbereich</span>
+        <LegendToggle name="kroessbach" active={visible.kroessbach} onClick={() => toggle("kroessbach")}>
+          Krössbach Pegel
+        </LegendToggle>
+        <LegendToggle name="puig" active={visible.puig} onClick={() => toggle("puig")}>
+          Puig Pegel
+        </LegendToggle>
+        <LegendToggle name="reichenau" active={visible.reichenau} onClick={() => toggle("reichenau")}>
+          Reichenau Pegel
+        </LegendToggle>
+        <LegendToggle name="level-range" active={visible.range} onClick={() => toggle("range")}>
+          Pegel-Zielbereich
+        </LegendToggle>
       </div>
     </div>
+  );
+}
+
+function LegendToggle({
+  name,
+  active,
+  onClick,
+  children,
+}: {
+  name: string;
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={`${name} ${active ? "active" : "inactive"}`}
+      onClick={onClick}
+      aria-pressed={active}
+    >
+      {children}
+    </button>
   );
 }
 

@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       observedAt,
       trim: `${trimCm} cm`,
       trimCm,
-      quality: Math.round(quality),
+      quality: Math.round(quality * 10) / 10,
       note,
       createdBy,
     });

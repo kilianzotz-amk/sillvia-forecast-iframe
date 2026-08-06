@@ -449,16 +449,16 @@ h3 {
   width: 100%;
 }
 
-.rating-buttons {
+.rating-slider {
   background: #e6ecee;
   border-radius: 8px;
   display: grid;
-  gap: 2px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  padding: 3px;
+  gap: 8px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  min-height: 42px;
+  padding: 7px 10px;
 }
 
-.rating-buttons button,
 .observation-form > button {
   border: 0;
   border-radius: 6px;
@@ -468,16 +468,18 @@ h3 {
   min-height: 42px;
 }
 
-.rating-buttons button {
-  background: transparent;
+.rating-slider strong {
+  align-self: center;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 900;
 }
 
-.rating-buttons button.active {
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(16, 38, 44, 0.12);
+.rating-slider input {
+  accent-color: var(--teal);
+  align-self: center;
 }
 
-.rating-buttons button.rating-1.active,
 .quality-chip.rating-1,
 .session-dot.rating-1 {
   background: #b64f45;
@@ -485,7 +487,6 @@ h3 {
   fill: #b64f45;
 }
 
-.rating-buttons button.rating-2.active,
 .quality-chip.rating-2,
 .session-dot.rating-2 {
   background: #c77b28;
@@ -493,7 +494,6 @@ h3 {
   fill: #c77b28;
 }
 
-.rating-buttons button.rating-3.active,
 .quality-chip.rating-3,
 .session-dot.rating-3 {
   background: #bd9a28;
@@ -501,7 +501,6 @@ h3 {
   fill: #bd9a28;
 }
 
-.rating-buttons button.rating-4.active,
 .quality-chip.rating-4,
 .session-dot.rating-4 {
   background: #6f8b3e;
@@ -509,7 +508,6 @@ h3 {
   fill: #6f8b3e;
 }
 
-.rating-buttons button.rating-5.active,
 .quality-chip.rating-5,
 .session-dot.rating-5 {
   background: var(--green);
@@ -1053,6 +1051,28 @@ h3 {
   stroke-width: 2.4;
 }
 
+.line.trim {
+  stroke: #6d5bd0;
+  stroke-width: 2;
+}
+
+.trim-axis {
+  stroke: rgba(109, 91, 208, 0.22);
+  stroke-width: 1;
+}
+
+.trim-title,
+.trim-label {
+  fill: #5b4ab2;
+  font-weight: 850;
+}
+
+.trim-dot {
+  fill: #6d5bd0;
+  stroke: #fff;
+  stroke-width: 1.3;
+}
+
 .delta-chart {
   min-height: 290px;
 }
@@ -1084,20 +1104,36 @@ h3 {
   margin-top: 8px;
 }
 
-.chart-legend span {
+.chart-legend span,
+.chart-legend button {
   align-items: center;
+  background: transparent;
+  border: 0;
   color: var(--ink);
+  cursor: pointer;
   display: inline-flex;
+  font: inherit;
   font-size: 0.78rem;
   font-weight: 800;
   gap: 7px;
+  padding: 0;
 }
 
-.chart-legend span::before {
+.chart-legend button.inactive {
+  opacity: 0.38;
+}
+
+.chart-legend span::before,
+.chart-legend button::before {
   border-radius: 999px;
   content: "";
+  flex: 0 0 auto;
   height: 9px;
   width: 24px;
+}
+
+.chart-legend .trim::before {
+  background: #6d5bd0;
 }
 
 .chart-legend .kroessbach::before {
