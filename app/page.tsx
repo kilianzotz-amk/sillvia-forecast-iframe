@@ -790,24 +790,47 @@ function expectedDeltaSeries(
   lagPuig: number,
 ) {
   const offsetMs = waveOffset * 60 * 1000;
+  const maxAgeMs = sampleInterval * 3;
 
-  return forecast.map((point) => {
-    const waveTime = point.t - offsetMs;
+  const measuredDelta = history.map((point) => {
     const upstream = shiftedUpstreamAt(
       history,
-      waveTime,
-      Math.max(0, lagKroessbach - waveOffset),
-      Math.max(0, lagPuig - waveOffset),
+      point.t,
+      lagKroessbach,
+      lagPuig,
+      maxAgeMs,
     ).value;
 
     return {
-      t: waveTime,
+      t: point.t - offsetMs,
       value:
-        point.value === null || upstream === null
+        point.reichenau === null || upstream === null
           ? null
-          : point.value - upstream,
+          : point.reichenau - upstream,
     };
   });
+
+  const latestHistoryTime = history[history.length - 1]?.t ?? Date.now();
+  const validMeasured = measuredDelta.filter(
+    (point): point is { t: number; value: number } => point.value !== null,
+  );
+  const recentMeasured = validMeasured
+    .filter((point) => point.t >= latestHistoryTime - offsetMs - 2 * 60 * 60 * 1000)
+    .slice(-8);
+  const projectedValue =
+    recentMeasured.length > 0
+      ? recentMeasured.reduce((sum, point) => sum + point.value, 0) /
+        recentMeasured.length
+      : (validMeasured[validMeasured.length - 1]?.value ?? null);
+
+  const projectedDelta = forecast
+    .filter((point) => point.t > latestHistoryTime)
+    .map((point) => ({
+      t: point.t - offsetMs,
+      value: point.value === null ? null : projectedValue,
+    }));
+
+  return [...measuredDelta, ...projectedDelta].sort((a, b) => a.t - b.t);
 }
 
 function latestAtWithAge(
@@ -1040,8 +1063,13 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
+      const runtimeBufferHours =
+        Math.ceil(
+          Math.max(forecastSettings.lagKroessbach, forecastSettings.lagPuig) / 60,
+        ) + 1;
+      const fetchHours = Math.min(365 * 24, historyHours + runtimeBufferHours);
       const response = await fetch(
-        `/api/hydro?hours=${Math.ceil(historyHours)}`,
+        `/api/hydro?hours=${Math.ceil(fetchHours)}`,
         { cache: "no-store" },
       );
       if (!response.ok) throw new Error("Daten konnten nicht geladen werden");
@@ -1173,7 +1201,13 @@ export default function Home() {
       window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewRange.preset, reviewRange.fromDate, reviewRange.toDate]);
+  }, [
+    reviewRange.preset,
+    reviewRange.fromDate,
+    reviewRange.toDate,
+    forecastSettings.lagKroessbach,
+    forecastSettings.lagPuig,
+  ]);
 
   const stationsById = useMemo(
     () => Object.fromEntries(payload.stations.map((station) => [station.id, station])),
@@ -1246,8 +1280,6 @@ export default function Home() {
     forecastSettings.lagPuig - forecastSettings.waveOffset,
   );
   const reichenauEquivalentTime = waveTime + forecastSettings.waveOffset * 60 * 1000;
-  const expectedReichenauAtWave =
-    valueAt(forecastLine, reichenauEquivalentTime) ?? downstreamFlow;
   const upstreamAtWave =
     shiftedUpstreamAt(
       forecastHistory,
@@ -1255,7 +1287,8 @@ export default function Home() {
       waveLagKroessbach,
       waveLagPuig,
     ).value ?? upstreamFlow;
-  const expectedWaveDelta = expectedReichenauAtWave - upstreamAtWave;
+  const expectedWaveDelta =
+    valueAt(deltaLine, waveTime) ?? downstreamFlow - upstreamFlow;
   const currentInflowTrend = inflowTrendAt(forecastHistory, waveTime);
   const waveInflowTrend = inflowTrendAt(
     forecastHistory,
@@ -1621,7 +1654,7 @@ export default function Home() {
             <SurfDeltaChart
               delta={deltaLine}
               timeDomain={chartTimeDomain}
-              markerTime={lastMeasurementTime}
+              markerTime={waveTime}
             />
             <SurfLevelChart
               history={forecastHistory}
@@ -2418,7 +2451,7 @@ function SurfDeltaChart({
           Delta Welle im Zeitverlauf
         </text>
         <text className="chart-subtitle" x={plot.left} y={31}>
-          Forecast Reichenau - laufzeitverschobener Zufluss an der Welle
+          Abfluss Reichenau - Summe Puig/Krössbach mit Laufzeitkorrektur
         </text>
         {gridTicks.map((tick) => (
           <line
