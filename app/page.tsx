@@ -349,6 +349,42 @@ function formatAxisTime(value: number, span: number) {
   }).format(new Date(value));
 }
 
+function timeGridTicks(minT: number, maxT: number) {
+  const span = maxT - minT;
+  const halfHour = 30 * 60 * 1000;
+  const hour = 60 * 60 * 1000;
+  const day = 24 * hour;
+  const step =
+    span <= 12 * hour
+      ? halfHour
+      : span <= 36 * hour
+        ? hour
+        : span <= 7 * day
+          ? 6 * hour
+          : day;
+  const first = Math.ceil(minT / step) * step;
+  const ticks: { t: number; major: boolean }[] = [];
+
+  for (let t = first; t <= maxT; t += step) {
+    ticks.push({ t, major: t % hour === 0 });
+  }
+
+  return ticks;
+}
+
+function timeAxisTicks(minT: number, maxT: number) {
+  const span = maxT - minT;
+  const gridTicks = timeGridTicks(minT, maxT);
+  const hour = 60 * 60 * 1000;
+
+  if (span <= 5 * hour) return gridTicks.map((tick) => tick.t);
+  if (span <= 12 * hour) return gridTicks.filter((tick) => tick.major).map((tick) => tick.t);
+
+  return Array.from({ length: 5 }, (_, index) =>
+    minT + ((maxT - minT) / 4) * index,
+  );
+}
+
 function formatUnit(unit: string) {
   return unit.replace("m3/s", "m³/s");
 }
@@ -1576,12 +1612,16 @@ export default function Home() {
             <SurfForecastChart
               history={forecastHistory}
               forecast={forecastLine}
-              delta={deltaLine}
               timeDomain={chartTimeDomain}
               markerTime={lastMeasurementTime}
               surfMin={Math.min(forecastSettings.surfMin, forecastSettings.surfMax)}
               surfMax={Math.max(forecastSettings.surfMin, forecastSettings.surfMax)}
               observations={observations}
+            />
+            <SurfDeltaChart
+              delta={deltaLine}
+              timeDomain={chartTimeDomain}
+              markerTime={lastMeasurementTime}
             />
             <SurfLevelChart
               history={forecastHistory}
@@ -2089,7 +2129,6 @@ function FlowNode({
 function SurfForecastChart({
   history,
   forecast,
-  delta,
   timeDomain,
   markerTime,
   surfMin,
@@ -2098,7 +2137,6 @@ function SurfForecastChart({
 }: {
   history: HistoryPoint[];
   forecast: { t: number; value: number | null }[];
-  delta: { t: number; value: number | null }[];
   timeDomain: TimeDomain;
   markerTime: number;
   surfMin: number;
@@ -2144,7 +2182,6 @@ function SurfForecastChart({
   const visibleUpstream = observedUpstream.filter(inTimeDomain);
   const visibleReichenau = observedReichenau.filter(inTimeDomain);
   const visibleForecast = forecast.filter(inTimeDomain);
-  const visibleDelta = delta.filter(inTimeDomain);
   const visibleSessionPoints = sessionPoints.filter(inTimeDomain);
   const allValues = [
     ...visibleKroessbach,
@@ -2152,7 +2189,6 @@ function SurfForecastChart({
     ...visibleUpstream,
     ...visibleReichenau,
     ...visibleForecast,
-    ...visibleDelta,
     ...visibleSessionPoints,
   ]
     .map((point) => point.value)
@@ -2188,9 +2224,8 @@ function SurfForecastChart({
     ]),
   ).sort((a, b) => a - b);
   const tickDecimals = tickStep < 5 ? 1 : 0;
-  const xTicks = Array.from({ length: 5 }, (_, index) =>
-    minT + ((maxT - minT) / 4) * index,
-  );
+  const xTicks = timeAxisTicks(minT, maxT);
+  const gridTicks = timeGridTicks(minT, maxT);
   const surfY = Math.max(plot.top, y(surfMax));
   const surfBottom = Math.min(plot.top + plotHeight, y(surfMin));
   const surfHeight = Math.max(4, surfBottom - surfY);
@@ -2201,6 +2236,16 @@ function SurfForecastChart({
     <div className="forecast-chart">
       <svg viewBox={`0 0 ${width} ${height}`} role="img">
         <title>Abfluss im Verhältnis zur Zeit</title>
+        {gridTicks.map((tick) => (
+          <line
+            key={tick.t}
+            className={`time-grid-line ${tick.major ? "major" : "minor"}`}
+            x1={x(tick.t)}
+            x2={x(tick.t)}
+            y1={plot.top}
+            y2={plot.top + plotHeight}
+          />
+        ))}
         <rect
           className="surf-range"
           x={plot.left}
@@ -2274,7 +2319,6 @@ function SurfForecastChart({
           d={linePath(visibleReichenau, x, y)}
         />
         <path className="line forecast" d={linePath(visibleForecast, x, y)} />
-        <path className="line delta" d={linePath(visibleDelta, x, y)} />
         {visibleSessionPoints.map((point) =>
           point.value === null ? null : (
             <g key={point.id}>
@@ -2320,9 +2364,124 @@ function SurfForecastChart({
         <span className="forecast">
           Forecast Reichenau <b>BETA</b>
         </span>
-        <span className="delta">Delta Welle</span>
         <span className="session">Sessionwerte</span>
         <span className="range">Zielbereich</span>
+      </div>
+    </div>
+  );
+}
+
+function SurfDeltaChart({
+  delta,
+  timeDomain,
+  markerTime,
+}: {
+  delta: { t: number; value: number | null }[];
+  timeDomain: TimeDomain;
+  markerTime: number;
+}) {
+  const inTimeDomain = (point: { t: number }) =>
+    point.t >= timeDomain.min && point.t <= timeDomain.max;
+  const visibleDelta = delta.filter(inTimeDomain);
+  const values = visibleDelta
+    .map((point) => point.value)
+    .filter((value): value is number => typeof value === "number");
+  const minT = timeDomain.min;
+  const maxT = timeDomain.max;
+  const maxAbs = Math.max(0.8, ...values.map((value) => Math.abs(value))) * 1.18;
+  const minValue = -maxAbs;
+  const maxValue = maxAbs;
+  const width = 820;
+  const height = 250;
+  const plot = { left: 58, top: 44, right: 20, bottom: 42 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const x = (t: number) =>
+    plot.left + ((t - minT) / Math.max(1, maxT - minT)) * plotWidth;
+  const y = (value: number) =>
+    plot.top +
+    plotHeight -
+    ((value - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
+  const yTicks = Array.from({ length: 7 }, (_, index) =>
+    Number((minValue + ((maxValue - minValue) / 6) * index).toFixed(2)),
+  );
+  const xTicks = timeAxisTicks(minT, maxT);
+  const gridTicks = timeGridTicks(minT, maxT);
+  const zeroY = y(0);
+  const markerX = x(markerTime);
+
+  return (
+    <div className="forecast-chart delta-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <title>Delta der Welle im Verhältnis zur Zeit</title>
+        <text className="chart-title" x={plot.left} y={16}>
+          Delta Welle im Zeitverlauf
+        </text>
+        <text className="chart-subtitle" x={plot.left} y={31}>
+          Forecast Reichenau - laufzeitverschobener Zufluss an der Welle
+        </text>
+        {gridTicks.map((tick) => (
+          <line
+            key={tick.t}
+            className={`time-grid-line ${tick.major ? "major" : "minor"}`}
+            x1={x(tick.t)}
+            x2={x(tick.t)}
+            y1={plot.top}
+            y2={plot.top + plotHeight}
+          />
+        ))}
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line
+              className="grid-line"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={y(tick)}
+              y2={y(tick)}
+            />
+            <text x={12} y={y(tick) + 4}>
+              {formatNumber(tick, 1)}
+            </text>
+          </g>
+        ))}
+        <line
+          className="zero-line"
+          x1={plot.left}
+          x2={width - plot.right}
+          y1={zeroY}
+          y2={zeroY}
+        />
+        <text
+          className="zero-label"
+          x={width - plot.right - 8}
+          y={zeroY - 8}
+          textAnchor="end"
+        >
+          0
+        </text>
+        {xTicks.map((tick) => (
+          <text key={tick} x={x(tick)} y={height - 12} textAnchor="middle">
+            {formatAxisTime(tick, maxT - minT)}
+          </text>
+        ))}
+        {markerX >= plot.left && markerX <= width - plot.right ? (
+          <g>
+            <line
+              className="marker-line"
+              x1={markerX}
+              x2={markerX}
+              y1={plot.top}
+              y2={plot.top + plotHeight}
+            />
+            <text className="marker-label" x={markerX + 7} y={plot.top + 12}>
+              Messpunkt
+            </text>
+          </g>
+        ) : null}
+        <path className="line delta" d={linePath(visibleDelta, x, y)} />
+      </svg>
+      <div className="chart-legend">
+        <span className="delta">Delta Welle</span>
       </div>
     </div>
   );
@@ -2390,9 +2549,8 @@ function SurfLevelChart({
   const yTicks = Array.from({ length: tickCount }, (_, index) =>
     Number((minValue + tickStep * index).toFixed(1)),
   );
-  const xTicks = Array.from({ length: 5 }, (_, index) =>
-    minT + ((maxT - minT) / 4) * index,
-  );
+  const xTicks = timeAxisTicks(minT, maxT);
+  const gridTicks = timeGridTicks(minT, maxT);
   const levelY = Math.max(plot.top, y(levelMax));
   const levelBottom = Math.min(plot.top + plotHeight, y(levelMin));
   const levelHeight = Math.max(4, levelBottom - levelY);
@@ -2405,6 +2563,16 @@ function SurfLevelChart({
         <text className="chart-title" x={plot.left} y={16}>
           Pegel im Zeitverlauf
         </text>
+        {gridTicks.map((tick) => (
+          <line
+            key={tick.t}
+            className={`time-grid-line ${tick.major ? "major" : "minor"}`}
+            x1={x(tick.t)}
+            x2={x(tick.t)}
+            y1={plot.top}
+            y2={plot.top + plotHeight}
+          />
+        ))}
         <rect
           className="level-range"
           x={plot.left}

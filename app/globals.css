@@ -899,8 +899,24 @@ h3 {
   font-weight: 850;
 }
 
+.forecast-chart .chart-subtitle {
+  fill: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
 .grid-line {
   stroke: #dfe7ea;
+  stroke-width: 1;
+}
+
+.time-grid-line {
+  stroke: rgba(96, 116, 123, 0.16);
+  stroke-width: 0.8;
+}
+
+.time-grid-line.major {
+  stroke: rgba(96, 116, 123, 0.26);
   stroke-width: 1;
 }
 
@@ -967,7 +983,11 @@ h3 {
 
 .line.delta {
   stroke: #4f5d75;
-  stroke-width: 2;
+  stroke-width: 2.4;
+}
+
+.delta-chart {
+  min-height: 290px;
 }
 
 .dot {
