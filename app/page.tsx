@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 
 type HydroValue = {
   value: number | null;
@@ -136,6 +143,11 @@ type ReviewRange = {
 
 type TimeZoom = {
   detail: number;
+  position: number;
+};
+
+type TimeDrag = {
+  x: number;
   position: number;
 };
 
@@ -1067,6 +1079,7 @@ export default function Home() {
     readStoredReviewRange(),
   );
   const [timeZoom, setTimeZoom] = useState<TimeZoom>(defaultTimeZoom);
+  const [timeDrag, setTimeDrag] = useState<TimeDrag | null>(null);
   const [observations, setObservations] = useState<SurfObservation[]>([]);
   const [observationForm, setObservationForm] = useState(() => ({
     observedAt: formatDateTimeInput(Date.now()),
@@ -1301,6 +1314,10 @@ export default function Home() {
     ),
   );
   const chartTimeDomain = zoomTimeDomain(baseTimeDomain, timeZoom);
+  const baseTimeSpan = baseTimeDomain.max - baseTimeDomain.min;
+  const chartTimeSpan = chartTimeDomain.max - chartTimeDomain.min;
+  const hasZoomableTimeAxis = baseTimeSpan > 90 * 60 * 1000;
+  const canMoveTimeAxis = chartTimeSpan < baseTimeSpan - sampleInterval;
   const visibleHistoryPoints = forecastHistory.filter(
     (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
   );
@@ -1417,6 +1434,58 @@ export default function Home() {
     forecastSettings.lagPuig * 60 * 1000;
   const latestForecast =
     forecastLine.findLast((point) => point.value !== null)?.value ?? upstreamFlow;
+  const shiftTimeAxis = (deltaPercent: number) => {
+    if (!canMoveTimeAxis) return;
+    setTimeZoom((current) => ({
+      ...current,
+      position: clamp(current.position + deltaPercent, 0, 100),
+    }));
+  };
+  const handleChartWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!hasZoomableTimeAxis) return;
+    const deltaX = event.deltaX + (event.shiftKey ? event.deltaY : 0);
+    const horizontalScroll = Math.abs(deltaX) > Math.abs(event.deltaY);
+
+    event.preventDefault();
+
+    if (horizontalScroll && canMoveTimeAxis) {
+      shiftTimeAxis(deltaX * 0.08);
+      return;
+    }
+
+    setTimeZoom((current) => ({
+      ...current,
+      detail: clamp(current.detail - event.deltaY * 0.08, 0, 100),
+    }));
+  };
+  const handleChartPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!hasZoomableTimeAxis) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setTimeDrag({ x: event.clientX, position: timeZoom.position });
+  };
+  const handleChartPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!timeDrag) return;
+    if (!canMoveTimeAxis) {
+      setTimeZoom((current) => ({
+        ...current,
+        detail: Math.max(current.detail, 55),
+      }));
+      return;
+    }
+    const width = Math.max(1, event.currentTarget.clientWidth);
+    const deltaPercent = ((timeDrag.x - event.clientX) / width) * 100;
+
+    setTimeZoom((current) => ({
+      ...current,
+      position: clamp(timeDrag.position + deltaPercent, 0, 100),
+    }));
+  };
+  const stopChartDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setTimeDrag(null);
+  };
 
   return (
     <main className="dashboard-shell">
@@ -1491,155 +1560,6 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="observation-section">
-        <div className="section-heading observation-heading">
-          <div>
-            <p>Wellenmeister</p>
-            <h2>Sessionwerte eintragen</h2>
-          </div>
-          <div className="observation-count">
-            <span>72 h Einträge</span>
-            <strong>{observations.length}</strong>
-          </div>
-        </div>
-
-        <form className="observation-form" onSubmit={submitObservation}>
-          <label>
-            <span>Zeitpunkt</span>
-            <input
-              type="datetime-local"
-              value={observationForm.observedAt}
-              onChange={(event) =>
-                setObservationForm((current) => ({
-                  ...current,
-                  observedAt: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <label>
-            <span>Trim cm</span>
-            <input
-              type="number"
-              min="0"
-              step="0.5"
-              value={observationForm.trimCm}
-              onChange={(event) =>
-                setObservationForm((current) => ({
-                  ...current,
-                  trimCm: event.target.value,
-                }))
-              }
-              placeholder="niedriger = stärker"
-            />
-          </label>
-          <fieldset>
-            <legend>Welle</legend>
-            <div className="rating-buttons">
-              {[1, 2, 3, 4, 5].map((rating) => (
-                <button
-                  key={rating}
-                  type="button"
-                  className={
-                    observationForm.quality === rating
-                      ? `active rating-${rating}`
-                      : `rating-${rating}`
-                  }
-                  onClick={() =>
-                    setObservationForm((current) => ({
-                      ...current,
-                      quality: rating,
-                    }))
-                  }
-                >
-                  {rating}
-                </button>
-              ))}
-            </div>
-            <div className="rating-scale">
-              <span>1 schlecht</span>
-              <span>5 gut</span>
-            </div>
-          </fieldset>
-          <label>
-            <span>Notiz</span>
-            <input
-              type="text"
-              value={observationForm.note}
-              onChange={(event) =>
-                setObservationForm((current) => ({
-                  ...current,
-                  note: event.target.value,
-                }))
-              }
-              placeholder="optional"
-            />
-          </label>
-          <button type="submit" disabled={observationSaving}>
-            {observationSaving ? "Speichert" : "Speichern"}
-          </button>
-        </form>
-
-        {observationMessage ? (
-          <p className="observation-message">{observationMessage}</p>
-        ) : null}
-
-        <div className="observation-list" aria-label="Letzte Sessionwerte">
-          {observations.slice(0, 4).map((observation) => (
-            <article key={observation.id}>
-              <div className="observation-card-head">
-                <span>{formatDate(observation.observedAt)}</span>
-                <button
-                  type="button"
-                  onClick={() => void deleteObservation(observation.id)}
-                  disabled={deletingObservationId === observation.id}
-                >
-                  Löschen
-                </button>
-              </div>
-              <strong className={`quality-chip rating-${observation.quality}`}>
-                {observation.quality}/5
-              </strong>
-              <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
-              <dl>
-                <div>
-                  <dt>Abfluss K/P/R</dt>
-                  <dd>
-                    {formatTriple(
-                      observation.kroessbachDischarge,
-                      observation.puigDischarge,
-                      observation.reichenauDischarge,
-                      2,
-                    )}{" "}
-                    m³/s
-                  </dd>
-                </div>
-                <div>
-                  <dt>Pegel K/P/R</dt>
-                  <dd>
-                    {formatTriple(
-                      observation.kroessbachLevel,
-                      observation.puigLevel,
-                      observation.reichenauLevel,
-                      1,
-                    )}{" "}
-                    cm
-                  </dd>
-                </div>
-              </dl>
-              {observation.note ? <small>{observation.note}</small> : null}
-            </article>
-          ))}
-          {!observations.length ? (
-            <article>
-              <span>Noch keine Einträge</span>
-              <strong>n/a</strong>
-              <p>Die nächsten Sessionwerte erscheinen hier.</p>
-            </article>
-          ) : null}
-        </div>
-      </section>
-
       <SpotInsightSection observationsWithUpstream={observationsWithUpstream} />
 
       <section className="flow-section">
@@ -1674,28 +1594,189 @@ export default function Home() {
         </div>
 
         <div className="forecast-layout">
-          <div className="forecast-stack">
-            <SurfForecastChart
-              history={forecastHistory}
-              forecast={forecastLine}
-              timeDomain={chartTimeDomain}
-              markerTime={lastMeasurementTime}
-              surfMin={Math.min(forecastSettings.surfMin, forecastSettings.surfMax)}
-              surfMax={Math.max(forecastSettings.surfMin, forecastSettings.surfMax)}
-              observations={observations}
-            />
-            <SurfDeltaChart
-              delta={deltaLine}
-              timeDomain={chartTimeDomain}
-              markerTime={waveTime}
-            />
-            <SurfLevelChart
-              history={forecastHistory}
-              timeDomain={chartTimeDomain}
-              markerTime={lastMeasurementTime}
-              levelMin={Math.min(forecastSettings.levelMin, forecastSettings.levelMax)}
-              levelMax={Math.max(forecastSettings.levelMin, forecastSettings.levelMax)}
-            />
+          <div className="forecast-main">
+            <div
+              className={`chart-navigator ${timeDrag ? "dragging" : ""}`}
+              onWheel={handleChartWheel}
+              onPointerDown={handleChartPointerDown}
+              onPointerMove={handleChartPointerMove}
+              onPointerUp={stopChartDrag}
+              onPointerCancel={stopChartDrag}
+              onPointerLeave={stopChartDrag}
+            >
+              <div className="forecast-stack">
+                <SurfForecastChart
+                  history={forecastHistory}
+                  forecast={forecastLine}
+                  timeDomain={chartTimeDomain}
+                  markerTime={lastMeasurementTime}
+                  surfMin={Math.min(forecastSettings.surfMin, forecastSettings.surfMax)}
+                  surfMax={Math.max(forecastSettings.surfMin, forecastSettings.surfMax)}
+                  observations={observations}
+                />
+                <SurfDeltaChart
+                  delta={deltaLine}
+                  timeDomain={chartTimeDomain}
+                  markerTime={waveTime}
+                />
+                <SurfLevelChart
+                  history={forecastHistory}
+                  timeDomain={chartTimeDomain}
+                  markerTime={lastMeasurementTime}
+                  levelMin={Math.min(forecastSettings.levelMin, forecastSettings.levelMax)}
+                  levelMax={Math.max(forecastSettings.levelMin, forecastSettings.levelMax)}
+                />
+              </div>
+            </div>
+
+            <section className="observation-section">
+              <div className="section-heading observation-heading">
+                <div>
+                  <p>Wellenmeister</p>
+                  <h2>Sessionwerte eintragen</h2>
+                </div>
+                <div className="observation-count">
+                  <span>72 h Einträge</span>
+                  <strong>{observations.length}</strong>
+                </div>
+              </div>
+
+              <form className="observation-form" onSubmit={submitObservation}>
+                <label>
+                  <span>Zeitpunkt</span>
+                  <input
+                    type="datetime-local"
+                    value={observationForm.observedAt}
+                    onChange={(event) =>
+                      setObservationForm((current) => ({
+                        ...current,
+                        observedAt: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Trim cm</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={observationForm.trimCm}
+                    onChange={(event) =>
+                      setObservationForm((current) => ({
+                        ...current,
+                        trimCm: event.target.value,
+                      }))
+                    }
+                    placeholder="niedriger = stärker"
+                  />
+                </label>
+                <fieldset>
+                  <legend>Welle</legend>
+                  <div className="rating-buttons">
+                    {[1, 2, 3, 4, 5].map((rating) => (
+                      <button
+                        key={rating}
+                        type="button"
+                        className={
+                          observationForm.quality === rating
+                            ? `active rating-${rating}`
+                            : `rating-${rating}`
+                        }
+                        onClick={() =>
+                          setObservationForm((current) => ({
+                            ...current,
+                            quality: rating,
+                          }))
+                        }
+                      >
+                        {rating}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="rating-scale">
+                    <span>1 schlecht</span>
+                    <span>5 gut</span>
+                  </div>
+                </fieldset>
+                <label>
+                  <span>Notiz</span>
+                  <input
+                    type="text"
+                    value={observationForm.note}
+                    onChange={(event) =>
+                      setObservationForm((current) => ({
+                        ...current,
+                        note: event.target.value,
+                      }))
+                    }
+                    placeholder="optional"
+                  />
+                </label>
+                <button type="submit" disabled={observationSaving}>
+                  {observationSaving ? "Speichert" : "Speichern"}
+                </button>
+              </form>
+
+              {observationMessage ? (
+                <p className="observation-message">{observationMessage}</p>
+              ) : null}
+
+              <div className="observation-list" aria-label="Letzte Sessionwerte">
+                {observations.slice(0, 4).map((observation) => (
+                  <article key={observation.id}>
+                    <div className="observation-card-head">
+                      <span>{formatDate(observation.observedAt)}</span>
+                      <button
+                        type="button"
+                        onClick={() => void deleteObservation(observation.id)}
+                        disabled={deletingObservationId === observation.id}
+                      >
+                        Löschen
+                      </button>
+                    </div>
+                    <strong className={`quality-chip rating-${observation.quality}`}>
+                      {observation.quality}/5
+                    </strong>
+                    <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
+                    <dl>
+                      <div>
+                        <dt>Abfluss K/P/R</dt>
+                        <dd>
+                          {formatTriple(
+                            observation.kroessbachDischarge,
+                            observation.puigDischarge,
+                            observation.reichenauDischarge,
+                            2,
+                          )}{" "}
+                          m³/s
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Pegel K/P/R</dt>
+                        <dd>
+                          {formatTriple(
+                            observation.kroessbachLevel,
+                            observation.puigLevel,
+                            observation.reichenauLevel,
+                            1,
+                          )}{" "}
+                          cm
+                        </dd>
+                      </div>
+                    </dl>
+                    {observation.note ? <small>{observation.note}</small> : null}
+                  </article>
+                ))}
+                {!observations.length ? (
+                  <article>
+                    <span>Noch keine Einträge</span>
+                    <strong>n/a</strong>
+                    <p>Die nächsten Sessionwerte erscheinen hier.</p>
+                  </article>
+                ) : null}
+              </div>
+            </section>
           </div>
 
           <aside className="forecast-controls" aria-label="Forecast Einstellungen">
