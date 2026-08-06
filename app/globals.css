@@ -1126,6 +1126,7 @@ h3 {
   flex-wrap: wrap;
   gap: 8px 14px;
   margin-top: 8px;
+  touch-action: manipulation;
 }
 
 .chart-legend span,
@@ -1144,7 +1145,20 @@ h3 {
 }
 
 .chart-legend button.inactive {
-  opacity: 0.38;
+  color: #91a0a5;
+  opacity: 1;
+}
+
+.chart-legend button.inactive::before {
+  background: #c9d3d7;
+  border: 1px solid #b9c6ca;
+  box-shadow: none;
+}
+
+.chart-legend button.inactive b {
+  background: #eef2f3;
+  border-color: #d2dcdf;
+  color: #8b9aa0;
 }
 
 .chart-legend span::before,

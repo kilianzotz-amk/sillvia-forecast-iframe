@@ -495,6 +495,13 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.min(max, Math.max(min, value));
 }
 
+function isInteractiveTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    Boolean(target.closest("button, input, select, textarea, a, label"))
+  );
+}
+
 function ratingClass(quality: number) {
   const rounded = Math.round(clamp(quality, 1, 5));
   return `rating-${rounded}`;
@@ -1559,6 +1566,7 @@ export default function Home() {
 
     const handleNativeWheel = (event: WheelEvent) => {
       const interaction = chartInteractionRef.current;
+      if (isInteractiveTarget(event.target)) return;
       if (!interaction.hasZoomableTimeAxis) return;
 
       event.preventDefault();
@@ -1583,6 +1591,7 @@ export default function Home() {
 
     const handleTouchStart = (event: TouchEvent) => {
       const interaction = chartInteractionRef.current;
+      if (isInteractiveTarget(event.target)) return;
       if (!interaction.hasZoomableTimeAxis) return;
 
       if (event.touches.length >= 2) {
@@ -1655,6 +1664,7 @@ export default function Home() {
 
   const handleChartPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "touch") return;
+    if (isInteractiveTarget(event.target)) return;
     if (!hasZoomableTimeAxis) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const startedFromOverview = !canMoveTimeAxis;
@@ -3181,6 +3191,7 @@ function LegendToggle({
       type="button"
       className={`${name} ${active ? "active" : "inactive"}`}
       onClick={onClick}
+      onPointerDown={(event) => event.stopPropagation()}
       aria-pressed={active}
     >
       {children}
