@@ -686,7 +686,7 @@ h3 {
 .rain-summary-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .rain-summary-card {
@@ -696,6 +696,11 @@ h3 {
   display: grid;
   gap: 5px;
   padding: 12px;
+}
+
+.rain-summary-card.forecast {
+  background: #fff8ea;
+  border-color: #ead3b1;
 }
 
 .rain-summary-card strong {
@@ -1633,6 +1638,12 @@ h3 {
   stroke: #6d5bd0;
 }
 
+.line.rain-forecast {
+  stroke: #2d8f68;
+  stroke-dasharray: 7 7;
+  stroke-width: 2.2;
+}
+
 .trim-axis {
   stroke: rgba(109, 91, 208, 0.22);
   stroke-width: 1;
@@ -1830,6 +1841,16 @@ h3 {
 
 .chart-legend .rain-area::before {
   background: rgba(22, 123, 128, 0.32);
+}
+
+.chart-legend .rain-forecast::before {
+  background: repeating-linear-gradient(
+    90deg,
+    #2d8f68,
+    #2d8f68 8px,
+    transparent 8px,
+    transparent 13px
+  );
 }
 
 .chart-legend .rain-innsbruck_uni::before {

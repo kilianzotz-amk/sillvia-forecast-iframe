@@ -13,7 +13,7 @@ export type WeatherPoint = {
   t: number;
   stationId: string;
   rainMm: number | null;
-  source: "GeoSphere Klima" | "GeoSphere TAWES";
+  source: "GeoSphere Klima" | "GeoSphere TAWES" | "GeoSphere Nowcast";
 };
 
 export type WeatherPayload = {
@@ -21,6 +21,7 @@ export type WeatherPayload = {
   source: string;
   stations: WeatherStation[];
   history: WeatherPoint[];
+  forecast?: WeatherPoint[];
   historySource?: "database" | "geosphere" | "mixed";
   collector?: {
     ok: boolean;
@@ -144,12 +145,36 @@ function parseStationPoints(
   return points;
 }
 
+function parseForecastPoints(data: GeoSphereResponse) {
+  const timestamps = data.timestamps ?? [];
+  const points: WeatherPoint[] = [];
+
+  (data.features ?? []).forEach((feature, featureIndex) => {
+    const station = weatherStations[featureIndex];
+    const values = feature.properties?.parameters?.rr?.data ?? [];
+    if (!station) return;
+
+    values.forEach((value, index) => {
+      const t = new Date(timestamps[index] ?? "").getTime();
+      if (!Number.isFinite(t)) return;
+      points.push({
+        t,
+        stationId: station.id,
+        rainMm: valueOrNull(value),
+        source: "GeoSphere Nowcast",
+      });
+    });
+  });
+
+  return points;
+}
+
 export function compactWeatherHistory(points: WeatherPoint[], maxPoints = 50000) {
   const byStationAndTime = new Map<string, WeatherPoint>();
 
   for (const point of points) {
     if (!Number.isFinite(point.t)) continue;
-    const t = Math.round(point.t / (10 * 60 * 1000)) * (10 * 60 * 1000);
+    const t = point.t;
     byStationAndTime.set(`${point.stationId}:${t}`, { ...point, t });
   }
 
@@ -207,11 +232,31 @@ export async function fetchWeatherHistorical(hours = 72) {
   );
 }
 
+export async function fetchWeatherForecast() {
+  const latLon = weatherStations
+    .map((station) => `lat_lon=${station.latLon[0]},${station.latLon[1]}`)
+    .join("&");
+  const response = await fetch(
+    `${GEOSPHERE_BASE}/timeseries/forecast/nowcast-v1-15min-1km?parameters=rr&${latLon}`,
+    {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("GeoSphere Regenforecast konnte nicht geladen werden");
+  }
+
+  return parseForecastPoints((await response.json()) as GeoSphereResponse);
+}
+
 export function emptyWeatherPayload(): WeatherPayload {
   return {
     fetchedAt: new Date().toISOString(),
     source: "GeoSphere Austria",
     stations: weatherStations,
     history: [],
+    forecast: [],
   };
 }

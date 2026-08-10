@@ -3,6 +3,7 @@ import {
   compactWeatherHistory,
   emptyWeatherPayload,
   fetchWeatherCurrent,
+  fetchWeatherForecast,
   fetchWeatherHistorical,
   weatherStations,
   type WeatherPoint,
@@ -32,6 +33,13 @@ export async function GET(request: Request) {
 
   try {
     let livePoints = [];
+    let forecastPoints = [];
+
+    try {
+      forecastPoints = await fetchWeatherForecast();
+    } catch {
+      forecastPoints = [];
+    }
 
     try {
       livePoints = await fetchWeatherCurrent();
@@ -46,6 +54,7 @@ export async function GET(request: Request) {
         return Response.json({
           ...emptyWeatherPayload(),
           history: compactWeatherHistory([...databaseHistory, ...livePoints]),
+          forecast: compactWeatherHistory(forecastPoints),
           historySource: "database",
         });
       }
@@ -66,6 +75,7 @@ export async function GET(request: Request) {
           ...historical,
           ...livePoints,
         ]),
+        forecast: compactWeatherHistory(forecastPoints),
         historySource: databaseHistory.length ? "mixed" : "geosphere",
       });
     } catch {
@@ -84,6 +94,7 @@ export async function GET(request: Request) {
     return Response.json({
       ...emptyWeatherPayload(),
       history: compactWeatherHistory([...historical, ...livePoints]),
+      forecast: compactWeatherHistory(forecastPoints),
       historySource: "geosphere",
     });
   } catch (error) {
