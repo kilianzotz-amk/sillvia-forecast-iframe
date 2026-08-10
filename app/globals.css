@@ -785,6 +785,10 @@ h3 {
   margin: 12px 0 0;
 }
 
+.observation-values-disclosure {
+  margin-top: 14px;
+}
+
 .observation-list {
   display: grid;
   gap: 10px;

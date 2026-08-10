@@ -2275,11 +2275,7 @@ export default function Home() {
               </div>
             </div>
 
-            <details className="dashboard-disclosure observation-section">
-              <summary>
-                <span>Wellenmeisterwerte</span>
-                <strong>{observations.length} Einträge</strong>
-              </summary>
+            <section className="observation-section">
               <div className="section-heading observation-heading">
                 <div>
                   <p>Wellenmeister</p>
@@ -2384,71 +2380,77 @@ export default function Home() {
                 <p className="observation-message">{observationMessage}</p>
               ) : null}
 
-              <div className="observation-list" aria-label="Alle Sessionwerte">
-                {observations.map((observation) => (
-                  <article key={observation.id}>
-                    <div className="observation-card-head">
-                      <span>{formatDate(observation.observedAt)}</span>
-                      <div className="observation-card-actions">
-                        <button
-                          type="button"
-                          className="edit"
-                          onClick={() => editObservation(observation)}
-                          disabled={observationSaving}
-                        >
-                          Bearbeiten
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void deleteObservation(observation.id)}
-                          disabled={deletingObservationId === observation.id}
-                        >
-                          Löschen
-                        </button>
+              <details className="dashboard-disclosure observation-values-disclosure">
+                <summary>
+                  <span>Gespeicherte Wellenmeisterwerte</span>
+                  <strong>{observations.length} Einträge</strong>
+                </summary>
+                <div className="observation-list" aria-label="Alle Sessionwerte">
+                  {observations.map((observation) => (
+                    <article key={observation.id}>
+                      <div className="observation-card-head">
+                        <span>{formatDate(observation.observedAt)}</span>
+                        <div className="observation-card-actions">
+                          <button
+                            type="button"
+                            className="edit"
+                            onClick={() => editObservation(observation)}
+                            disabled={observationSaving}
+                          >
+                            Bearbeiten
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteObservation(observation.id)}
+                            disabled={deletingObservationId === observation.id}
+                          >
+                            Löschen
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <strong className={`quality-chip ${ratingClass(observation.quality)}`}>
-                      {formatQuality(observation.quality)}/5
-                    </strong>
-                    <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
-                    <dl>
-                      <div>
-                        <dt>Abfluss K/P/R</dt>
-                        <dd>
-                          {formatTriple(
-                            observation.kroessbachDischarge,
-                            observation.puigDischarge,
-                            observation.reichenauDischarge,
-                            2,
-                          )}{" "}
-                          m³/s
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Pegel K/P/R</dt>
-                        <dd>
-                          {formatTriple(
-                            observation.kroessbachLevel,
-                            observation.puigLevel,
-                            observation.reichenauLevel,
-                            1,
-                          )}{" "}
-                          cm
-                        </dd>
-                      </div>
-                    </dl>
-                    {observation.note ? <small>{observation.note}</small> : null}
-                  </article>
-                ))}
-                {!observations.length ? (
-                  <article>
-                    <span>Noch keine Einträge</span>
-                    <strong>n/a</strong>
-                    <p>Die nächsten Sessionwerte erscheinen hier.</p>
-                  </article>
-                ) : null}
-              </div>
-            </details>
+                      <strong className={`quality-chip ${ratingClass(observation.quality)}`}>
+                        {formatQuality(observation.quality)}/5
+                      </strong>
+                      <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
+                      <dl>
+                        <div>
+                          <dt>Abfluss K/P/R</dt>
+                          <dd>
+                            {formatTriple(
+                              observation.kroessbachDischarge,
+                              observation.puigDischarge,
+                              observation.reichenauDischarge,
+                              2,
+                            )}{" "}
+                            m³/s
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Pegel K/P/R</dt>
+                          <dd>
+                            {formatTriple(
+                              observation.kroessbachLevel,
+                              observation.puigLevel,
+                              observation.reichenauLevel,
+                              1,
+                            )}{" "}
+                            cm
+                          </dd>
+                        </div>
+                      </dl>
+                      {observation.note ? <small>{observation.note}</small> : null}
+                    </article>
+                  ))}
+                  {!observations.length ? (
+                    <article>
+                      <span>Noch keine Einträge</span>
+                      <strong>n/a</strong>
+                      <p>Die nächsten Sessionwerte erscheinen hier.</p>
+                    </article>
+                  ) : null}
+                </div>
+              </details>
+            </section>
           </div>
 
           <aside className="forecast-controls" aria-label="Forecast Einstellungen">
