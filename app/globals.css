@@ -195,6 +195,7 @@ h3 {
 .quality-section,
 .observation-section,
 .spot-insight-section,
+.setup-section,
 .flow-section,
 .forecast-section,
 .archive-section,
@@ -246,6 +247,10 @@ h3 {
 }
 
 .spot-insight-section {
+  order: 5;
+}
+
+.setup-section {
   order: 5;
 }
 
@@ -386,6 +391,7 @@ h3 {
 .quality-section,
 .observation-section,
 .spot-insight-section,
+.setup-section,
 .forecast-section,
 .archive-section,
 .chart-section {
@@ -650,6 +656,171 @@ h3 {
 
 .spot-insight-heading {
   align-items: center;
+}
+
+.setup-heading {
+  align-items: center;
+}
+
+.setup-marker {
+  background: #eef4f5;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  min-width: 190px;
+  padding: 10px 12px;
+}
+
+.setup-marker span,
+.setup-form span,
+.setup-log-list dt {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.setup-marker strong {
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.setup-note {
+  background: #fff7e8;
+  border: 1px solid #ead3b1;
+  border-radius: 8px;
+  color: #745216;
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.45;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.setup-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.setup-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.setup-note-field {
+  grid-column: span 4;
+}
+
+.setup-form input,
+.setup-form select {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 750;
+  min-height: 40px;
+  min-width: 0;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.setup-form button {
+  align-self: end;
+  background: var(--ink);
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 850;
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.setup-form button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.setup-message {
+  color: var(--teal-dark);
+  font-size: 0.84rem;
+  font-weight: 800;
+  margin: 12px 0 0;
+}
+
+.setup-log-list {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 14px;
+}
+
+.setup-log-list article {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.setup-log-head {
+  align-items: start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.setup-log-head span {
+  color: var(--muted);
+  display: block;
+  font-size: 0.76rem;
+  font-weight: 850;
+  margin-bottom: 3px;
+}
+
+.setup-log-head strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.setup-log-head button {
+  background: #fcebea;
+  border: 1px solid #e7b6b2;
+  border-radius: 6px;
+  color: #8d2f28;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 850;
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.setup-log-head button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.setup-log-list dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.setup-log-list dd {
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 850;
+  margin: 2px 0 0;
+}
+
+.setup-log-list p {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin: 0;
 }
 
 .spot-insight-source {
@@ -1745,6 +1916,9 @@ h3 {
   .observation-form,
   .observation-list,
   .spot-insight-grid,
+  .setup-form,
+  .setup-log-list,
+  .setup-log-list dl,
   .flow-model,
   .forecast-layout,
   .runtime-correlation-grid,
@@ -1765,6 +1939,10 @@ h3 {
 
   .segmented {
     grid-auto-flow: row;
+  }
+
+  .setup-note-field {
+    grid-column: auto;
   }
 }
 
@@ -1787,6 +1965,7 @@ h3 {
   .quality-section,
   .observation-section,
   .spot-insight-section,
+  .setup-section,
   .flow-section,
   .forecast-section,
   .archive-section,
@@ -1800,6 +1979,7 @@ h3 {
   .quality-heading,
   .chart-time-head,
   .observation-heading,
+  .setup-heading,
   .archive-heading {
     align-items: stretch;
     flex-direction: column;

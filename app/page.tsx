@@ -5,9 +5,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 
 type HydroValue = {
@@ -78,6 +80,23 @@ type SurfObservation = {
   kroessbachLevel: number | null;
   puigLevel: number | null;
   reichenauLevel: number | null;
+  note: string | null;
+  createdBy: string | null;
+};
+
+type PlatformSetupLog = {
+  id: number;
+  loggedAt: number;
+  createdAt: number;
+  waveMaster: string | null;
+  chainLeftCm: number | null;
+  chainRightCm: number | null;
+  rampPosition: string | null;
+  trimHeightCm: number | null;
+  tensionLeft: boolean | null;
+  tensionRight: boolean | null;
+  waterLevelCm: number | null;
+  dischargeCms: number | null;
   note: string | null;
   createdBy: string | null;
 };
@@ -174,6 +193,7 @@ const settingsStorageKey = "sill-surf-forecast-settings-v1";
 const reviewRangeStorageKey = "sill-surf-review-range-v1";
 const sampleInterval = 15 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
+const platformSetupChangeAt = new Date("2026-08-06T00:00:00+02:00").getTime();
 const defaultForecastSettings: ForecastSettings = {
   lagKroessbach: 115,
   lagPuig: 90,
@@ -518,6 +538,25 @@ function formatVolume(value: number | null) {
   const absolute = Math.abs(value);
   const digits = absolute >= 1000 ? 0 : 1;
   return `${value >= 0 ? "+" : ""}${formatNumber(value, digits)}`;
+}
+
+function formatOptionalCm(value: number | null) {
+  return value === null ? "-" : `${formatNumber(value, value % 1 === 0 ? 0 : 1)} cm`;
+}
+
+function formatSetupPair(left: number | null, right: number | null) {
+  return `${formatOptionalCm(left)} / ${formatOptionalCm(right)}`;
+}
+
+function formatBooleanFlag(value: boolean | null) {
+  if (value === null) return "-";
+  return value ? "Ja" : "Nein";
+}
+
+function setupDateValue(value: number) {
+  const date = new Date(value);
+  const localTime = value - date.getTimezoneOffset() * 60 * 1000;
+  return new Date(localTime).toISOString().slice(0, 10);
 }
 
 function sortSurfObservations(observations: SurfObservation[]) {
@@ -1226,6 +1265,23 @@ export default function Home() {
     null,
   );
   const [observationMessage, setObservationMessage] = useState("");
+  const [setupLogs, setSetupLogs] = useState<PlatformSetupLog[]>([]);
+  const [setupForm, setSetupForm] = useState(() => ({
+    loggedAt: setupDateValue(platformSetupChangeAt),
+    waveMaster: "",
+    chainLeftCm: "",
+    chainRightCm: "",
+    rampPosition: "",
+    trimHeightCm: "",
+    tensionLeft: "",
+    tensionRight: "",
+    waterLevelCm: "",
+    dischargeCms: "",
+    note: "",
+  }));
+  const [setupSaving, setSetupSaving] = useState(false);
+  const [deletingSetupId, setDeletingSetupId] = useState<number | null>(null);
+  const [setupMessage, setSetupMessage] = useState("");
 
   function recordHistory(nextPayload: HydroPayload) {
     const point = historyPointFromPayload(nextPayload);
@@ -1271,6 +1327,7 @@ export default function Home() {
         recordHistory(orderedPayload);
       }
       void refreshObservations(historyHours);
+      void refreshSetupLogs();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unbekannter Fehler");
     } finally {
@@ -1291,6 +1348,102 @@ export default function Home() {
       setObservations(sortSurfObservations(data.observations ?? []));
     } catch {
       setObservations([]);
+    }
+  }
+
+  async function refreshSetupLogs() {
+    try {
+      const response = await fetch("/api/platform-setup?limit=80", {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Setup-Logs nicht verfügbar");
+      const data = (await response.json()) as { logs?: PlatformSetupLog[] };
+      setSetupLogs(data.logs ?? []);
+    } catch {
+      setSetupLogs([]);
+    }
+  }
+
+  async function submitSetupLog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSetupMessage("");
+
+    const loggedAt = parseStartDate(setupForm.loggedAt);
+
+    if (loggedAt === null) {
+      setSetupMessage("Bitte Datum eintragen.");
+      return;
+    }
+
+    setSetupSaving(true);
+    try {
+      const response = await fetch("/api/platform-setup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          loggedAt,
+          waveMaster: setupForm.waveMaster,
+          chainLeftCm: setupForm.chainLeftCm,
+          chainRightCm: setupForm.chainRightCm,
+          rampPosition: setupForm.rampPosition,
+          trimHeightCm: setupForm.trimHeightCm,
+          tensionLeft: setupForm.tensionLeft,
+          tensionRight: setupForm.tensionRight,
+          waterLevelCm: setupForm.waterLevelCm,
+          dischargeCms: setupForm.dischargeCms,
+          note: setupForm.note,
+        }),
+      });
+      const data = (await response.json()) as {
+        log?: PlatformSetupLog;
+        error?: string;
+      };
+      if (!response.ok || !data.log) {
+        throw new Error(data.error ?? "Speichern fehlgeschlagen");
+      }
+      setSetupLogs((current) => [data.log!, ...current].slice(0, 80));
+      setSetupForm((current) => ({
+        ...current,
+        waveMaster: "",
+        chainLeftCm: "",
+        chainRightCm: "",
+        rampPosition: "",
+        trimHeightCm: "",
+        tensionLeft: "",
+        tensionRight: "",
+        waterLevelCm: "",
+        dischargeCms: "",
+        note: "",
+      }));
+      setSetupMessage("Setup-Wert gespeichert.");
+    } catch (err) {
+      setSetupMessage(
+        err instanceof Error ? err.message : "Speichern fehlgeschlagen",
+      );
+    } finally {
+      setSetupSaving(false);
+    }
+  }
+
+  async function deleteSetupLog(id: number) {
+    if (!window.confirm("Diesen Setup-Wert wirklich löschen?")) return;
+
+    setSetupMessage("");
+    setDeletingSetupId(id);
+    try {
+      const response = await fetch(`/api/platform-setup?id=${id}`, {
+        method: "DELETE",
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "Löschen fehlgeschlagen");
+      }
+      setSetupLogs((current) => current.filter((log) => log.id !== id));
+      setSetupMessage("Setup-Wert gelöscht.");
+    } catch (err) {
+      setSetupMessage(err instanceof Error ? err.message : "Löschen fehlgeschlagen");
+    } finally {
+      setDeletingSetupId(null);
     }
   }
 
@@ -1889,6 +2042,17 @@ export default function Home() {
 
       <SpotInsightSection observationsWithUpstream={observationsWithUpstream} />
 
+      <PlatformSetupSection
+        setupLogs={setupLogs}
+        setupForm={setupForm}
+        setupMessage={setupMessage}
+        setupSaving={setupSaving}
+        deletingSetupId={deletingSetupId}
+        onFormChange={setSetupForm}
+        onSubmit={submitSetupLog}
+        onDelete={deleteSetupLog}
+      />
+
       <section className="flow-section">
         <div className="section-heading">
           <p>Abflussmodell</p>
@@ -2445,6 +2609,302 @@ function SpotInsightSection({
             </div>
           </dl>
         </article>
+      </div>
+    </section>
+  );
+}
+
+function PlatformSetupSection({
+  setupLogs,
+  setupForm,
+  setupMessage,
+  setupSaving,
+  deletingSetupId,
+  onFormChange,
+  onSubmit,
+  onDelete,
+}: {
+  setupLogs: PlatformSetupLog[];
+  setupForm: {
+    loggedAt: string;
+    waveMaster: string;
+    chainLeftCm: string;
+    chainRightCm: string;
+    rampPosition: string;
+    trimHeightCm: string;
+    tensionLeft: string;
+    tensionRight: string;
+    waterLevelCm: string;
+    dischargeCms: string;
+    note: string;
+  };
+  setupMessage: string;
+  setupSaving: boolean;
+  deletingSetupId: number | null;
+  onFormChange: Dispatch<
+    SetStateAction<{
+      loggedAt: string;
+      waveMaster: string;
+      chainLeftCm: string;
+      chainRightCm: string;
+      rampPosition: string;
+      trimHeightCm: string;
+      tensionLeft: string;
+      tensionRight: string;
+      waterLevelCm: string;
+      dischargeCms: string;
+      note: string;
+    }>
+  >;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onDelete: (id: number) => void;
+}) {
+  return (
+    <section className="setup-section">
+      <div className="section-heading setup-heading">
+        <div>
+          <p>Setupwechsel</p>
+          <h2>Plattform & Rampe</h2>
+        </div>
+        <div className="setup-marker">
+          <span>Marker aktiv ab</span>
+          <strong>{formatDate(platformSetupChangeAt)}</strong>
+        </div>
+      </div>
+
+      <div className="setup-note">
+        Plattform wurde verstellt. Trimwerte ab diesem Marker werden als neues
+        Setup betrachtet und sollten nicht direkt mit alten Trimwerten verglichen
+        werden.
+      </div>
+
+      <form className="setup-form" onSubmit={onSubmit}>
+        <label>
+          <span>Datum</span>
+          <input
+            type="date"
+            required
+            value={setupForm.loggedAt}
+            onChange={(event) =>
+              onFormChange((current) => ({ ...current, loggedAt: event.target.value }))
+            }
+          />
+        </label>
+        <label>
+          <span>Wellenmeister:in</span>
+          <input
+            type="text"
+            value={setupForm.waveMaster}
+            onChange={(event) =>
+              onFormChange((current) => ({
+                ...current,
+                waveMaster: event.target.value,
+              }))
+            }
+            placeholder="Name"
+          />
+        </label>
+        <label>
+          <span>Kettenzug li</span>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={setupForm.chainLeftCm}
+            onChange={(event) =>
+              onFormChange((current) => ({
+                ...current,
+                chainLeftCm: event.target.value,
+              }))
+            }
+            placeholder="cm"
+          />
+        </label>
+        <label>
+          <span>Kettenzug re</span>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={setupForm.chainRightCm}
+            onChange={(event) =>
+              onFormChange((current) => ({
+                ...current,
+                chainRightCm: event.target.value,
+              }))
+            }
+            placeholder="cm"
+          />
+        </label>
+        <label>
+          <span>Rampe</span>
+          <input
+            type="text"
+            value={setupForm.rampPosition}
+            onChange={(event) =>
+              onFormChange((current) => ({
+                ...current,
+                rampPosition: event.target.value,
+              }))
+            }
+            placeholder="z.B. Mittig"
+          />
+        </label>
+        <label>
+          <span>Trimmhöhe</span>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={setupForm.trimHeightCm}
+            onChange={(event) =>
+              onFormChange((current) => ({
+                ...current,
+                trimHeightCm: event.target.value,
+              }))
+            }
+            placeholder="cm"
+          />
+        </label>
+        <label>
+          <span>Spannung li</span>
+          <select
+            value={setupForm.tensionLeft}
+            onChange={(event) =>
+              onFormChange((current) => ({
+                ...current,
+                tensionLeft: event.target.value,
+              }))
+            }
+          >
+            <option value="">-</option>
+            <option value="true">Ja</option>
+            <option value="false">Nein</option>
+          </select>
+        </label>
+        <label>
+          <span>Spannung re</span>
+          <select
+            value={setupForm.tensionRight}
+            onChange={(event) =>
+              onFormChange((current) => ({
+                ...current,
+                tensionRight: event.target.value,
+              }))
+            }
+          >
+            <option value="">-</option>
+            <option value="true">Ja</option>
+            <option value="false">Nein</option>
+          </select>
+        </label>
+        <label>
+          <span>Pegel</span>
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            value={setupForm.waterLevelCm}
+            onChange={(event) =>
+              onFormChange((current) => ({
+                ...current,
+                waterLevelCm: event.target.value,
+              }))
+            }
+            placeholder="cm"
+          />
+        </label>
+        <label>
+          <span>Abfluss</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={setupForm.dischargeCms}
+            onChange={(event) =>
+              onFormChange((current) => ({
+                ...current,
+                dischargeCms: event.target.value,
+              }))
+            }
+            placeholder="m³/s"
+          />
+        </label>
+        <label className="setup-note-field">
+          <span>Bemerkungen</span>
+          <input
+            type="text"
+            value={setupForm.note}
+            onChange={(event) =>
+              onFormChange((current) => ({ ...current, note: event.target.value }))
+            }
+            placeholder="Was wurde verändert, wie war die Welle?"
+          />
+        </label>
+        <button type="submit" disabled={setupSaving}>
+          {setupSaving ? "Speichert" : "Setup speichern"}
+        </button>
+      </form>
+
+      {setupMessage ? <p className="setup-message">{setupMessage}</p> : null}
+
+      <div className="setup-log-list">
+        {setupLogs.map((log) => (
+          <article key={log.id}>
+            <div className="setup-log-head">
+              <div>
+                <span>{formatDate(log.loggedAt)}</span>
+                <strong>{log.waveMaster ?? "Wellenmeister:in n/a"}</strong>
+              </div>
+              <button
+                type="button"
+                onClick={() => onDelete(log.id)}
+                disabled={deletingSetupId === log.id}
+              >
+                Löschen
+              </button>
+            </div>
+            <dl>
+              <div>
+                <dt>Kettenzug li/re</dt>
+                <dd>{formatSetupPair(log.chainLeftCm, log.chainRightCm)}</dd>
+              </div>
+              <div>
+                <dt>Rampe</dt>
+                <dd>{log.rampPosition ?? "-"}</dd>
+              </div>
+              <div>
+                <dt>Trimmhöhe</dt>
+                <dd>{formatOptionalCm(log.trimHeightCm)}</dd>
+              </div>
+              <div>
+                <dt>Spannung li/re</dt>
+                <dd>
+                  {formatBooleanFlag(log.tensionLeft)} / {formatBooleanFlag(log.tensionRight)}
+                </dd>
+              </div>
+              <div>
+                <dt>Wassermenge</dt>
+                <dd>
+                  {formatNumber(log.waterLevelCm, 1)} cm /{" "}
+                  {formatNumber(log.dischargeCms, 2)} m³/s
+                </dd>
+              </div>
+            </dl>
+            {log.note ? <p>{log.note}</p> : null}
+          </article>
+        ))}
+        {!setupLogs.length ? (
+          <article>
+            <div className="setup-log-head">
+              <div>
+                <span>Noch keine Setupwerte</span>
+                <strong>Umbau-Log leer</strong>
+              </div>
+            </div>
+            <p>Neue Plattformwerte erscheinen hier.</p>
+          </article>
+        ) : null}
       </div>
     </section>
   );

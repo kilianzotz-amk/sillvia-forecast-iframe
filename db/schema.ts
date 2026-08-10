@@ -40,3 +40,20 @@ export const surfObservations = sqliteTable("surf_observations", {
   note: text("note"),
   createdBy: text("created_by"),
 });
+
+export const platformSetupLogs = sqliteTable("platform_setup_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  loggedAt: integer("logged_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+  waveMaster: text("wave_master"),
+  chainLeftCm: real("chain_left_cm"),
+  chainRightCm: real("chain_right_cm"),
+  rampPosition: text("ramp_position"),
+  trimHeightCm: real("trim_height_cm"),
+  tensionLeft: integer("tension_left", { mode: "boolean" }),
+  tensionRight: integer("tension_right", { mode: "boolean" }),
+  waterLevelCm: real("water_level_cm"),
+  dischargeCms: real("discharge_cms"),
+  note: text("note"),
+  createdBy: text("created_by"),
+});
