@@ -2990,7 +2990,7 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 48 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 49 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>

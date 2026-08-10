@@ -14,16 +14,25 @@ function databaseHasRequestedCoverage(history: WeatherPoint[], hours: number) {
 
   const now = Date.now();
   const requestedSince = now - hours * 60 * 60 * 1000;
-  const times = history.map((point) => point.t);
-  const oldest = Math.min(...times);
-  const newest = Math.max(...times);
-  const expectedPoints = hours * 6 * weatherStations.length;
-  const hasEnoughPoints = history.length >= expectedPoints * 0.6;
-  const startsNearRequestedWindow =
-    oldest <= requestedSince + Math.min(2 * 60 * 60 * 1000, hours * 0.08 * 60 * 60 * 1000);
-  const reachesCurrentWindow = newest >= now - 3 * 60 * 60 * 1000;
+  const expectedPointsPerStation = hours * 6;
+  const startTolerance = Math.min(
+    2 * 60 * 60 * 1000,
+    hours * 0.08 * 60 * 60 * 1000,
+  );
 
-  return hasEnoughPoints && startsNearRequestedWindow && reachesCurrentWindow;
+  return weatherStations.every((station) => {
+    const stationHistory = history.filter((point) => point.stationId === station.id);
+    if (!stationHistory.length) return false;
+
+    const times = stationHistory.map((point) => point.t);
+    const oldest = Math.min(...times);
+    const newest = Math.max(...times);
+    const hasEnoughPoints = stationHistory.length >= expectedPointsPerStation * 0.55;
+    const startsNearRequestedWindow = oldest <= requestedSince + startTolerance;
+    const reachesCurrentWindow = newest >= now - 3 * 60 * 60 * 1000;
+
+    return hasEnoughPoints && startsNearRequestedWindow && reachesCurrentWindow;
+  });
 }
 
 export async function GET(request: Request) {
