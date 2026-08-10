@@ -109,6 +109,17 @@ type ManualQualitySignal = {
   observedAt: number;
 };
 
+type DataQualitySignal = {
+  score: number | null;
+  confidence: number;
+  label: "schwach" | "vorsichtig" | "brauchbar";
+  sampleSize: number;
+  sameSetupCount: number;
+  matchedCount: number;
+  basis: "gleiches Setup" | "altes Setup" | "gemischt" | "keine Daten";
+  note: string;
+};
+
 type RuntimeComparisonPoint = {
   t: number;
   expected: number;
@@ -659,6 +670,145 @@ function recentManualSignal(
   };
 }
 
+function isRealObservation(observation: SurfObservation) {
+  return !(observation.note ?? "").toLowerCase().includes("test");
+}
+
+function observationDataFeatures(observation: SurfObservation) {
+  const upstream =
+    observation.kroessbachDischarge === null && observation.puigDischarge === null
+      ? null
+      : (observation.kroessbachDischarge ?? 0) + (observation.puigDischarge ?? 0);
+  const delta =
+    observation.reichenauDischarge === null || upstream === null
+      ? null
+      : observation.reichenauDischarge - upstream;
+
+  return {
+    upstream,
+    reichenau: observation.reichenauDischarge,
+    level: observation.reichenauLevel,
+    delta,
+  };
+}
+
+function dataSimilarity(
+  target: {
+    delta: number;
+    upstream: number;
+    level: number | null;
+    reichenau: number | null;
+  },
+  features: ReturnType<typeof observationDataFeatures>,
+) {
+  const parts: number[] = [];
+
+  if (features.delta !== null) parts.push(Math.abs(target.delta - features.delta) / 1.8);
+  if (features.upstream !== null) {
+    parts.push(Math.abs(target.upstream - features.upstream) / 4);
+  }
+  if (features.level !== null && target.level !== null) {
+    parts.push(Math.abs(target.level - features.level) / 7);
+  }
+  if (features.reichenau !== null && target.reichenau !== null) {
+    parts.push(Math.abs(target.reichenau - features.reichenau) / 4);
+  }
+
+  if (!parts.length) return 0;
+  const distance = parts.reduce((sum, part) => sum + part, 0) / parts.length;
+  return Math.exp(-distance);
+}
+
+function dataQualitySignal(
+  observations: SurfObservation[],
+  target: {
+    time: number;
+    delta: number;
+    upstream: number;
+    level: number | null;
+    reichenau: number | null;
+  },
+): DataQualitySignal {
+  const rated = observations
+    .filter(isRealObservation)
+    .filter((observation) => {
+      const features = observationDataFeatures(observation);
+      return (
+        features.delta !== null ||
+        features.upstream !== null ||
+        features.level !== null ||
+        features.reichenau !== null
+      );
+    });
+  const targetIsNewSetup = target.time >= platformSetupChangeAt;
+  const sameSetup = rated.filter((observation) =>
+    targetIsNewSetup
+      ? observation.observedAt >= platformSetupChangeAt
+      : observation.observedAt < platformSetupChangeAt,
+  );
+  const useSameSetup = sameSetup.length >= 3;
+  const basis = useSameSetup ? sameSetup : rated;
+
+  if (!basis.length) {
+    return {
+      score: null,
+      confidence: 0,
+      label: "schwach",
+      sampleSize: 0,
+      sameSetupCount: sameSetup.length,
+      matchedCount: 0,
+      basis: "keine Daten",
+      note: "Noch keine bewerteten Sessiondaten.",
+    };
+  }
+
+  const weighted = basis
+    .map((observation) => ({
+      observation,
+      similarity: dataSimilarity(target, observationDataFeatures(observation)),
+    }))
+    .filter((entry) => entry.similarity >= 0.08)
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, 8);
+  const relevant = weighted.length ? weighted : basis.map((observation) => ({
+    observation,
+    similarity: 0.08,
+  }));
+  const weightSum = relevant.reduce((sum, entry) => sum + entry.similarity, 0);
+  const score =
+    relevant.reduce(
+      (sum, entry) => sum + observationScore(entry.observation.quality) * entry.similarity,
+      0,
+    ) / Math.max(0.01, weightSum);
+  const setupPenalty = targetIsNewSetup && !useSameSetup ? 0.45 : 1;
+  const dataAmount = clamp(basis.length / 12, 0, 1);
+  const matchStrength = clamp(weightSum / 4, 0, 1);
+  const confidence = Math.round(
+    clamp((dataAmount * 0.55 + matchStrength * 0.45) * setupPenalty, 0, 1) * 100,
+  );
+  const label =
+    confidence >= 60 ? "brauchbar" : confidence >= 30 ? "vorsichtig" : "schwach";
+  const basisLabel: DataQualitySignal["basis"] = useSameSetup
+    ? "gleiches Setup"
+    : targetIsNewSetup
+      ? "altes Setup"
+      : "gemischt";
+
+  return {
+    score: Math.round(score),
+    confidence,
+    label,
+    sampleSize: basis.length,
+    sameSetupCount: sameSetup.length,
+    matchedCount: weighted.length,
+    basis: basisLabel,
+    note:
+      basisLabel === "altes Setup"
+        ? "Noch zu wenige Bewertungen im neuen Setup. Signal wird gedämpft."
+        : "Ähnliche gespeicherte Bewertungen werden gewichtet.",
+  };
+}
+
 function blendManualQuality(
   modelScore: number,
   signal: ManualQualitySignal | null,
@@ -667,6 +817,15 @@ function blendManualQuality(
   if (!signal) return modelScore;
   const ageHours = Math.max(0, referenceTime - signal.observedAt) / (60 * 60 * 1000);
   const weight = ageHours <= 1 ? 0.35 : ageHours <= 3 ? 0.25 : 0.15;
+  return Math.round(clamp(modelScore * (1 - weight) + signal.score * weight));
+}
+
+function blendDataQuality(
+  modelScore: number,
+  signal: DataQualitySignal,
+) {
+  if (signal.score === null || signal.confidence <= 0) return modelScore;
+  const weight = Math.min(0.28, signal.confidence / 100 * 0.28);
   return Math.round(clamp(modelScore * (1 - weight) + signal.score * weight));
 }
 
@@ -1692,6 +1851,14 @@ export default function Home() {
     volumeBalance.balance60,
   );
   const manualNow = recentManualSignal(observations, waveTime);
+  const dataNow = dataQualitySignal(observations, {
+    time: waveTime,
+    delta: expectedWaveDelta,
+    upstream: upstreamAtWave,
+    level: levelAtWave,
+    reichenau: downstreamFlow,
+  });
+  const qualityNowDataScore = blendDataQuality(qualityNowModelScore, dataNow);
   const qualityNow = {
     time: waveTime,
     delta: expectedWaveDelta,
@@ -1700,8 +1867,10 @@ export default function Home() {
     level: levelAtWave,
     volumeBalance60: volumeBalance.balance60,
     modelScore: qualityNowModelScore,
+    data: dataNow,
+    dataScore: qualityNowDataScore,
     manual: manualNow,
-    score: blendManualQuality(qualityNowModelScore, manualNow, waveTime),
+    score: blendManualQuality(qualityNowDataScore, manualNow, waveTime),
   };
   const horizonEnd = waveTime + 2 * 60 * 60 * 1000;
   const qualityCandidates = deltaLine
@@ -1742,6 +1911,14 @@ export default function Home() {
         candidateVolumeBalance60,
       );
       const manual = recentManualSignal(observations, point.t);
+      const data = dataQualitySignal(observations, {
+        time: point.t,
+        delta: point.value,
+        upstream,
+        level,
+        reichenau: upstream + point.value,
+      });
+      const dataScore = blendDataQuality(modelScore, data);
       return {
         time: point.t,
         delta: point.value,
@@ -1750,8 +1927,10 @@ export default function Home() {
         level,
         volumeBalance60: candidateVolumeBalance60,
         modelScore,
+        data,
+        dataScore,
         manual,
-        score: blendManualQuality(modelScore, manual, point.t),
+        score: blendManualQuality(dataScore, manual, point.t),
       };
     });
   const qualityForecast = [...qualityCandidates, qualityNow].sort(
@@ -2038,6 +2217,7 @@ export default function Home() {
             quality={qualityForecast}
           />
         </div>
+        <DataQualityBox signal={qualityNow.data} />
       </section>
 
       <SpotInsightSection observationsWithUpstream={observationsWithUpstream} />
@@ -2956,6 +3136,38 @@ function Metric({
   );
 }
 
+function DataQualityBox({ signal }: { signal: DataQualitySignal }) {
+  return (
+    <article className={`data-quality-box ${signal.label}`}>
+      <div>
+        <span>Bewertung aus Daten</span>
+        <strong>
+          {signal.score === null ? "n/a" : `${signal.score} %`}
+        </strong>
+      </div>
+      <dl>
+        <div>
+          <dt>Aussagekraft</dt>
+          <dd>{signal.label} · {signal.confidence} %</dd>
+        </div>
+        <div>
+          <dt>Datenbasis</dt>
+          <dd>{signal.sampleSize} Werte · {signal.basis}</dd>
+        </div>
+        <div>
+          <dt>Ähnliche Punkte</dt>
+          <dd>{signal.matchedCount}</dd>
+        </div>
+        <div>
+          <dt>Neues Setup</dt>
+          <dd>{signal.sameSetupCount} Werte</dd>
+        </div>
+      </dl>
+      <p>{signal.note}</p>
+    </article>
+  );
+}
+
 function WaveQualityCard({
   title,
   quality,
@@ -2970,6 +3182,8 @@ function WaveQualityCard({
     volumeBalance60: number | null;
     score: number;
     modelScore: number;
+    data: DataQualitySignal;
+    dataScore: number;
     manual: ManualQualitySignal | null;
   };
 }) {
@@ -3018,6 +3232,18 @@ function WaveQualityCard({
         <div>
           <dt>Modell</dt>
           <dd>{quality.modelScore} %</dd>
+        </div>
+        <div>
+          <dt>Daten</dt>
+          <dd>
+            {quality.data.score === null
+              ? "n/a"
+              : `${quality.data.score} % · ${quality.data.confidence} %`}
+          </dd>
+        </div>
+        <div>
+          <dt>Modell + Daten</dt>
+          <dd>{quality.dataScore} %</dd>
         </div>
         <div>
           <dt>Meister</dt>

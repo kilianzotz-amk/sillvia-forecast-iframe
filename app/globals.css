@@ -301,6 +301,69 @@ h3 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.data-quality-box {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+}
+
+.data-quality-box.brauchbar {
+  background: #eef7f1;
+  border-color: #cddfce;
+}
+
+.data-quality-box.vorsichtig {
+  background: #fff7e8;
+  border-color: #ead3b1;
+}
+
+.data-quality-box.schwach {
+  background: #f8fafb;
+}
+
+.data-quality-box > div {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.data-quality-box span,
+.data-quality-box dt {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.data-quality-box strong {
+  color: var(--ink);
+  font-size: 1.4rem;
+}
+
+.data-quality-box dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.data-quality-box dd {
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 850;
+  margin: 3px 0 0;
+}
+
+.data-quality-box p {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
 .quality-card {
   border: 1px solid var(--line);
   border-left: 6px solid var(--gold);
@@ -1913,6 +1976,7 @@ h3 {
   .top-band,
   .kpi-grid,
   .quality-grid,
+  .data-quality-box dl,
   .observation-form,
   .observation-list,
   .spot-insight-grid,
