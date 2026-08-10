@@ -28,7 +28,7 @@ function databaseHasRequestedCoverage(history: WeatherPoint[], hours: number) {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const hours = Number(url.searchParams.get("hours") ?? "72");
-  const safeHours = Math.min(365 * 24, Math.max(1, Math.round(hours)));
+  const safeHours = Math.min(31 * 24, Math.max(1, Math.round(hours)));
 
   try {
     let livePoints = [];

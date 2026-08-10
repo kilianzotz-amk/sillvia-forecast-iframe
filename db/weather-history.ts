@@ -26,13 +26,15 @@ export async function storeWeatherPoints(points: WeatherPoint[]) {
   const db = getD1();
   const collectedAt = Date.now();
   let writes = 0;
+  const statements = [];
 
   for (const point of points) {
     const station = weatherStations.find((entry) => entry.id === point.stationId);
     if (!station) continue;
 
-    const result = await db
-      .prepare(
+    statements.push(
+      db
+        .prepare(
         `INSERT INTO weather_measurements (
           station_id,
           station_name,
@@ -50,20 +52,28 @@ export async function storeWeatherPoints(points: WeatherPoint[]) {
           collected_at = excluded.collected_at,
           rain_mm = excluded.rain_mm,
           unit = excluded.unit`,
-      )
-      .bind(
-        station.id,
-        station.name,
-        point.source === "GeoSphere TAWES" ? station.tawesId : station.climateId,
-        point.source,
-        point.t,
-        collectedAt,
-        point.rainMm,
-        "mm",
-      )
-      .run();
+        )
+        .bind(
+          station.id,
+          station.name,
+          point.source === "GeoSphere TAWES" ? station.tawesId : station.climateId,
+          point.source,
+          point.t,
+          collectedAt,
+          point.rainMm,
+          "mm",
+        ),
+    );
+  }
 
-    writes += result.meta.changes ?? 0;
+  const chunkSize = 500;
+  for (let index = 0; index < statements.length; index += chunkSize) {
+    const results = await db.batch(statements.slice(index, index + chunkSize));
+
+    writes += results.reduce(
+      (sum, result) => sum + (result.meta.changes ?? 0),
+      0,
+    );
   }
 
   return { collectedAt, writes };
