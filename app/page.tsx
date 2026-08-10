@@ -584,10 +584,40 @@ function formatBooleanFlag(value: boolean | null) {
   return value ? "Ja" : "Nein";
 }
 
-function setupDateValue(value: number) {
-  const date = new Date(value);
-  const localTime = value - date.getTimezoneOffset() * 60 * 1000;
-  return new Date(localTime).toISOString().slice(0, 10);
+function emptySetupForm(loggedAt = formatDateTimeInput(platformSetupChangeAt)) {
+  return {
+    loggedAt,
+    waveMaster: "",
+    chainLeftCm: "",
+    chainRightCm: "",
+    rampPosition: "",
+    trimHeightCm: "",
+    tensionLeft: "",
+    tensionRight: "",
+    waterLevelCm: "",
+    dischargeCms: "",
+    note: "",
+  };
+}
+
+function setupFormFromLog(log: PlatformSetupLog) {
+  return {
+    loggedAt: formatDateTimeInput(log.loggedAt),
+    waveMaster: log.waveMaster ?? "",
+    chainLeftCm: log.chainLeftCm === null ? "" : String(log.chainLeftCm),
+    chainRightCm: log.chainRightCm === null ? "" : String(log.chainRightCm),
+    rampPosition: log.rampPosition ?? "",
+    trimHeightCm: log.trimHeightCm === null ? "" : String(log.trimHeightCm),
+    tensionLeft: log.tensionLeft === null ? "" : String(log.tensionLeft),
+    tensionRight: log.tensionRight === null ? "" : String(log.tensionRight),
+    waterLevelCm: log.waterLevelCm === null ? "" : formatNumber(log.waterLevelCm, 1),
+    dischargeCms: log.dischargeCms === null ? "" : formatNumber(log.dischargeCms, 2),
+    note: log.note ?? "",
+  };
+}
+
+function sortSetupLogs(logs: PlatformSetupLog[]) {
+  return [...logs].sort((a, b) => b.loggedAt - a.loggedAt || b.id - a.id);
 }
 
 function sortSurfObservations(observations: SurfObservation[]) {
@@ -1445,19 +1475,8 @@ export default function Home() {
   );
   const [observationMessage, setObservationMessage] = useState("");
   const [setupLogs, setSetupLogs] = useState<PlatformSetupLog[]>([]);
-  const [setupForm, setSetupForm] = useState(() => ({
-    loggedAt: setupDateValue(platformSetupChangeAt),
-    waveMaster: "",
-    chainLeftCm: "",
-    chainRightCm: "",
-    rampPosition: "",
-    trimHeightCm: "",
-    tensionLeft: "",
-    tensionRight: "",
-    waterLevelCm: "",
-    dischargeCms: "",
-    note: "",
-  }));
+  const [setupForm, setSetupForm] = useState(() => emptySetupForm());
+  const [editingSetupId, setEditingSetupId] = useState<number | null>(null);
   const [setupSaving, setSetupSaving] = useState(false);
   const [deletingSetupId, setDeletingSetupId] = useState<number | null>(null);
   const [setupMessage, setSetupMessage] = useState("");
@@ -1537,7 +1556,7 @@ export default function Home() {
       });
       if (!response.ok) throw new Error("Setup-Logs nicht verfügbar");
       const data = (await response.json()) as { logs?: PlatformSetupLog[] };
-      setSetupLogs(data.logs ?? []);
+      setSetupLogs(sortSetupLogs(data.logs ?? []));
     } catch {
       setSetupLogs([]);
     }
@@ -1547,19 +1566,21 @@ export default function Home() {
     event.preventDefault();
     setSetupMessage("");
 
-    const loggedAt = parseStartDate(setupForm.loggedAt);
+    const loggedAt = parseDateTimeInput(setupForm.loggedAt);
 
     if (loggedAt === null) {
-      setSetupMessage("Bitte Datum eintragen.");
+      setSetupMessage("Bitte Datum und Uhrzeit eintragen.");
       return;
     }
 
     setSetupSaving(true);
     try {
+      const isEditing = editingSetupId !== null;
       const response = await fetch("/api/platform-setup", {
-        method: "POST",
+        method: isEditing ? "PUT" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          id: editingSetupId,
           loggedAt,
           waveMaster: setupForm.waveMaster,
           chainLeftCm: setupForm.chainLeftCm,
@@ -1580,21 +1601,17 @@ export default function Home() {
       if (!response.ok || !data.log) {
         throw new Error(data.error ?? "Speichern fehlgeschlagen");
       }
-      setSetupLogs((current) => [data.log!, ...current].slice(0, 80));
-      setSetupForm((current) => ({
-        ...current,
-        waveMaster: "",
-        chainLeftCm: "",
-        chainRightCm: "",
-        rampPosition: "",
-        trimHeightCm: "",
-        tensionLeft: "",
-        tensionRight: "",
-        waterLevelCm: "",
-        dischargeCms: "",
-        note: "",
-      }));
-      setSetupMessage("Setup-Wert gespeichert.");
+      setSetupLogs((current) => {
+        const withoutOldVersion = current.filter((log) => log.id !== data.log!.id);
+        return sortSetupLogs([data.log!, ...withoutOldVersion]).slice(0, 80);
+      });
+      setEditingSetupId(null);
+      setSetupForm(emptySetupForm(setupForm.loggedAt));
+      setSetupMessage(
+        isEditing
+          ? "Setup-Wert aktualisiert. Pegel/Abfluss wurden neu aus Reichenau zugeordnet."
+          : "Setup-Wert gespeichert. Pegel/Abfluss wurden aus Reichenau übernommen.",
+      );
     } catch (err) {
       setSetupMessage(
         err instanceof Error ? err.message : "Speichern fehlgeschlagen",
@@ -1618,12 +1635,27 @@ export default function Home() {
         throw new Error(data.error ?? "Löschen fehlgeschlagen");
       }
       setSetupLogs((current) => current.filter((log) => log.id !== id));
+      if (editingSetupId === id) {
+        cancelSetupEdit();
+      }
       setSetupMessage("Setup-Wert gelöscht.");
     } catch (err) {
       setSetupMessage(err instanceof Error ? err.message : "Löschen fehlgeschlagen");
     } finally {
       setDeletingSetupId(null);
     }
+  }
+
+  function editSetupLog(log: PlatformSetupLog) {
+    setEditingSetupId(log.id);
+    setSetupForm(setupFormFromLog(log));
+    setSetupMessage("Setup-Wert wird bearbeitet.");
+  }
+
+  function cancelSetupEdit() {
+    setEditingSetupId(null);
+    setSetupForm(emptySetupForm());
+    setSetupMessage("");
   }
 
   async function submitObservation(event: FormEvent<HTMLFormElement>) {
@@ -2651,10 +2683,13 @@ export default function Home() {
         setupLogs={setupLogs}
         setupForm={setupForm}
         setupMessage={setupMessage}
+        editingSetupId={editingSetupId}
         setupSaving={setupSaving}
         deletingSetupId={deletingSetupId}
         onFormChange={setSetupForm}
         onSubmit={submitSetupLog}
+        onEdit={editSetupLog}
+        onCancelEdit={cancelSetupEdit}
         onDelete={deleteSetupLog}
       />
 
@@ -2782,10 +2817,13 @@ function PlatformSetupSection({
   setupLogs,
   setupForm,
   setupMessage,
+  editingSetupId,
   setupSaving,
   deletingSetupId,
   onFormChange,
   onSubmit,
+  onEdit,
+  onCancelEdit,
   onDelete,
 }: {
   setupLogs: PlatformSetupLog[];
@@ -2803,6 +2841,7 @@ function PlatformSetupSection({
     note: string;
   };
   setupMessage: string;
+  editingSetupId: number | null;
   setupSaving: boolean;
   deletingSetupId: number | null;
   onFormChange: Dispatch<
@@ -2821,6 +2860,8 @@ function PlatformSetupSection({
     }>
   >;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onEdit: (log: PlatformSetupLog) => void;
+  onCancelEdit: () => void;
   onDelete: (id: number) => void;
 }) {
   return (
@@ -2843,14 +2884,15 @@ function PlatformSetupSection({
       <div className="setup-note">
         Plattform wurde verstellt. Trimwerte ab diesem Marker werden als neues
         Setup betrachtet und sollten nicht direkt mit alten Trimwerten verglichen
-        werden.
+        werden. Pegel und Abfluss werden passend zur eingetragenen Uhrzeit aus
+        Reichenau übernommen.
       </div>
 
       <form className="setup-form" onSubmit={onSubmit}>
         <label>
-          <span>Datum</span>
+          <span>Datum & Uhrzeit</span>
           <input
-            type="date"
+            type="datetime-local"
             required
             value={setupForm.loggedAt}
             onChange={(event) =>
@@ -2966,38 +3008,14 @@ function PlatformSetupSection({
             <option value="false">Nein</option>
           </select>
         </label>
-        <label>
-          <span>Pegel</span>
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={setupForm.waterLevelCm}
-            onChange={(event) =>
-              onFormChange((current) => ({
-                ...current,
-                waterLevelCm: event.target.value,
-              }))
-            }
-            placeholder="cm"
-          />
-        </label>
-        <label>
-          <span>Abfluss</span>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={setupForm.dischargeCms}
-            onChange={(event) =>
-              onFormChange((current) => ({
-                ...current,
-                dischargeCms: event.target.value,
-              }))
-            }
-            placeholder="m³/s"
-          />
-        </label>
+        <div className="setup-auto-field">
+          <span>Pegel Reichenau</span>
+          <strong>{setupForm.waterLevelCm || "auto"}</strong>
+        </div>
+        <div className="setup-auto-field">
+          <span>Abfluss Reichenau</span>
+          <strong>{setupForm.dischargeCms || "auto"}</strong>
+        </div>
         <label className="setup-note-field">
           <span>Bemerkungen</span>
           <input
@@ -3010,8 +3028,22 @@ function PlatformSetupSection({
           />
         </label>
         <button type="submit" disabled={setupSaving}>
-          {setupSaving ? "Speichert" : "Setup speichern"}
+          {setupSaving
+            ? "Speichert"
+            : editingSetupId === null
+              ? "Setup speichern"
+              : "Aktualisieren"}
         </button>
+        {editingSetupId !== null ? (
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={onCancelEdit}
+            disabled={setupSaving}
+          >
+            Abbrechen
+          </button>
+        ) : null}
       </form>
 
       {setupMessage ? <p className="setup-message">{setupMessage}</p> : null}
@@ -3024,6 +3056,14 @@ function PlatformSetupSection({
                 <span>{formatDate(log.loggedAt)}</span>
                 <strong>{log.waveMaster ?? "Wellenmeister:in n/a"}</strong>
               </div>
+              <button
+                type="button"
+                className="edit"
+                onClick={() => onEdit(log)}
+                disabled={setupSaving}
+              >
+                Bearbeiten
+              </button>
               <button
                 type="button"
                 onClick={() => onDelete(log.id)}
@@ -3052,7 +3092,7 @@ function PlatformSetupSection({
                 </dd>
               </div>
               <div>
-                <dt>Wassermenge</dt>
+                <dt>Reichenau Messwert</dt>
                 <dd>
                   {formatNumber(log.waterLevelCm, 1)} cm /{" "}
                   {formatNumber(log.dischargeCms, 2)} m³/s

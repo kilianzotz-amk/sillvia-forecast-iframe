@@ -2,6 +2,7 @@ import {
   createPlatformSetupLog,
   deletePlatformSetupLog,
   getPlatformSetupLogs,
+  updatePlatformSetupLog,
 } from "@/db/platform-setup-logs";
 
 function cleanText(value: unknown, maxLength = 240) {
@@ -22,6 +23,33 @@ function optionalBoolean(value: unknown) {
   return null;
 }
 
+function parseRequiredTimestamp(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseSetupInput(body: Record<string, unknown>) {
+  const loggedAt = parseRequiredTimestamp(body.loggedAt);
+
+  if (loggedAt === null) {
+    return { error: "Zeitpunkt muss eingetragen werden" };
+  }
+
+  return {
+    loggedAt,
+    waveMaster: cleanText(body.waveMaster, 120) || null,
+    chainLeftCm: optionalNumber(body.chainLeftCm),
+    chainRightCm: optionalNumber(body.chainRightCm),
+    rampPosition: cleanText(body.rampPosition, 120) || null,
+    trimHeightCm: optionalNumber(body.trimHeightCm),
+    tensionLeft: optionalBoolean(body.tensionLeft),
+    tensionRight: optionalBoolean(body.tensionRight),
+    waterLevelCm: optionalNumber(body.waterLevelCm),
+    dischargeCms: optionalNumber(body.dischargeCms),
+    note: cleanText(body.note, 600) || null,
+  };
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const limit = Number(url.searchParams.get("limit") ?? "40");
@@ -36,28 +64,15 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
-    const loggedAt = Number(body.loggedAt);
+    const parsed = parseSetupInput(body);
 
-    if (!Number.isFinite(loggedAt) || loggedAt <= 0) {
-      return Response.json(
-        { error: "Datum muss eingetragen werden" },
-        { status: 400 },
-      );
+    if ("error" in parsed) {
+      return Response.json({ error: parsed.error }, { status: 400 });
     }
 
     const createdBy = request.headers.get("oai-authenticated-user-email");
     const log = await createPlatformSetupLog({
-      loggedAt,
-      waveMaster: cleanText(body.waveMaster, 120) || null,
-      chainLeftCm: optionalNumber(body.chainLeftCm),
-      chainRightCm: optionalNumber(body.chainRightCm),
-      rampPosition: cleanText(body.rampPosition, 120) || null,
-      trimHeightCm: optionalNumber(body.trimHeightCm),
-      tensionLeft: optionalBoolean(body.tensionLeft),
-      tensionRight: optionalBoolean(body.tensionRight),
-      waterLevelCm: optionalNumber(body.waterLevelCm),
-      dischargeCms: optionalNumber(body.dischargeCms),
-      note: cleanText(body.note, 600) || null,
+      ...parsed,
       createdBy,
     });
 
@@ -69,6 +84,40 @@ export async function POST(request: Request) {
           error instanceof Error
             ? error.message
             : "Setup-Wert konnte nicht gespeichert werden",
+      },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const body = (await request.json()) as Record<string, unknown>;
+    const id = Number(body.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return Response.json({ error: "Ungültige ID" }, { status: 400 });
+    }
+
+    const parsed = parseSetupInput(body);
+
+    if ("error" in parsed) {
+      return Response.json({ error: parsed.error }, { status: 400 });
+    }
+
+    const log = await updatePlatformSetupLog({
+      id,
+      ...parsed,
+    });
+
+    return Response.json({ log });
+  } catch (error) {
+    return Response.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Setup-Wert konnte nicht aktualisiert werden",
       },
       { status: 500 },
     );

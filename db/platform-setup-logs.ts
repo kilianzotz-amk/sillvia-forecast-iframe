@@ -49,6 +49,16 @@ type CreatePlatformSetupLog = {
   createdBy?: string | null;
 };
 
+type UpdatePlatformSetupLog = Omit<CreatePlatformSetupLog, "createdBy"> & {
+  id: number;
+};
+
+type NearestMeasurementRow = {
+  measured_at: number;
+  water_value: number | null;
+  discharge_value: number | null;
+};
+
 function getD1() {
   if (!env.DB) {
     throw new Error("Cloudflare D1 binding `DB` is unavailable.");
@@ -76,8 +86,37 @@ function rowToLog(row: PlatformSetupLogRow): PlatformSetupLog {
   };
 }
 
+async function getNearestReichenauMeasurement(
+  db: ReturnType<typeof getD1>,
+  loggedAt: number,
+) {
+  return db
+    .prepare(
+      `SELECT measured_at, water_value, discharge_value
+       FROM hydro_measurements
+       WHERE station_id = ?
+       ORDER BY ABS(measured_at - ?) ASC
+       LIMIT 1`,
+    )
+    .bind("201624", loggedAt)
+    .first<NearestMeasurementRow>();
+}
+
+async function withReichenauContext(
+  db: ReturnType<typeof getD1>,
+  input: CreatePlatformSetupLog | UpdatePlatformSetupLog,
+) {
+  const reichenau = await getNearestReichenauMeasurement(db, input.loggedAt);
+
+  return {
+    waterLevelCm: reichenau?.water_value ?? input.waterLevelCm ?? null,
+    dischargeCms: reichenau?.discharge_value ?? input.dischargeCms ?? null,
+  };
+}
+
 export async function createPlatformSetupLog(input: CreatePlatformSetupLog) {
   const db = getD1();
+  const context = await withReichenauContext(db, input);
   const result = await db
     .prepare(
       `INSERT INTO platform_setup_logs (
@@ -125,14 +164,73 @@ export async function createPlatformSetupLog(input: CreatePlatformSetupLog) {
       input.tensionRight === null || input.tensionRight === undefined
         ? null
         : Number(input.tensionRight),
-      input.waterLevelCm ?? null,
-      input.dischargeCms ?? null,
+      context.waterLevelCm,
+      context.dischargeCms,
       input.note ?? null,
       input.createdBy ?? null,
     )
     .first<PlatformSetupLogRow>();
 
   if (!result) throw new Error("Setup-Wert konnte nicht gespeichert werden");
+  return rowToLog(result);
+}
+
+export async function updatePlatformSetupLog(input: UpdatePlatformSetupLog) {
+  const db = getD1();
+  const context = await withReichenauContext(db, input);
+  const result = await db
+    .prepare(
+      `UPDATE platform_setup_logs
+       SET
+        logged_at = ?,
+        wave_master = ?,
+        chain_left_cm = ?,
+        chain_right_cm = ?,
+        ramp_position = ?,
+        trim_height_cm = ?,
+        tension_left = ?,
+        tension_right = ?,
+        water_level_cm = ?,
+        discharge_cms = ?,
+        note = ?
+       WHERE id = ?
+       RETURNING
+        id,
+        logged_at,
+        created_at,
+        wave_master,
+        chain_left_cm,
+        chain_right_cm,
+        ramp_position,
+        trim_height_cm,
+        tension_left,
+        tension_right,
+        water_level_cm,
+        discharge_cms,
+        note,
+        created_by`,
+    )
+    .bind(
+      input.loggedAt,
+      input.waveMaster ?? null,
+      input.chainLeftCm ?? null,
+      input.chainRightCm ?? null,
+      input.rampPosition ?? null,
+      input.trimHeightCm ?? null,
+      input.tensionLeft === null || input.tensionLeft === undefined
+        ? null
+        : Number(input.tensionLeft),
+      input.tensionRight === null || input.tensionRight === undefined
+        ? null
+        : Number(input.tensionRight),
+      context.waterLevelCm,
+      context.dischargeCms,
+      input.note ?? null,
+      input.id,
+    )
+    .first<PlatformSetupLogRow>();
+
+  if (!result) throw new Error("Setup-Wert wurde nicht gefunden");
   return rowToLog(result);
 }
 
