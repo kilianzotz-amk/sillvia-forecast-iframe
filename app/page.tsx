@@ -225,6 +225,10 @@ type SpotInsightStats = {
   averageGoodQuality: number | null;
   averageGoodTrim: number | null;
   goodDeltaAverage: number | null;
+  levelFlowCorrelation: number | null;
+  levelFlowCount: number;
+  targetLevelFlowCorrelation: number | null;
+  targetCorrelationCount: number;
 };
 
 type ReviewPreset = "12h" | "24h" | "week" | "month" | "year" | "all" | "custom";
@@ -603,6 +607,14 @@ function formatCorrelation(value: number | null) {
   return formatNumber(value, 2);
 }
 
+function correlationHint(value: number | null, count = 0) {
+  if (count < 3 || value === null || Number.isNaN(value)) return "zu wenig Daten";
+  const strength = Math.abs(value);
+  if (strength >= 0.75) return value > 0 ? "stark gemeinsam" : "stark gegenläufig";
+  if (strength >= 0.45) return value > 0 ? "mittel gemeinsam" : "mittel gegenläufig";
+  return "schwach";
+}
+
 function formatTriple(
   kroessbach: number | null,
   puig: number | null,
@@ -952,6 +964,26 @@ function spotInsightStats(observations: SurfObservation[]): SpotInsightStats {
   const goodTrims = good
     .map((observation) => observation.trimCm)
     .filter((value): value is number => value !== null);
+  const levelFlowPairs = real
+    .filter(
+      (observation) =>
+        observation.reichenauLevel !== null &&
+        observation.reichenauDischarge !== null,
+    )
+    .map((observation) => ({
+      x: observation.reichenauLevel ?? 0,
+      y: observation.reichenauDischarge ?? 0,
+    }));
+  const targetLevelFlowPairs = good
+    .filter(
+      (observation) =>
+        observation.reichenauLevel !== null &&
+        observation.reichenauDischarge !== null,
+    )
+    .map((observation) => ({
+      x: observation.reichenauLevel ?? 0,
+      y: observation.reichenauDischarge ?? 0,
+    }));
 
   return {
     total: real.length,
@@ -961,6 +993,10 @@ function spotInsightStats(observations: SurfObservation[]): SpotInsightStats {
     averageGoodQuality: average(good.map((observation) => observation.quality)),
     averageGoodTrim: average(goodTrims),
     goodDeltaAverage: average(goodDeltas),
+    levelFlowCorrelation: pearsonCorrelation(levelFlowPairs),
+    levelFlowCount: levelFlowPairs.length,
+    targetLevelFlowCorrelation: pearsonCorrelation(targetLevelFlowPairs),
+    targetCorrelationCount: targetLevelFlowPairs.length,
   };
 }
 
@@ -3075,7 +3111,7 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 50 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 51 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
@@ -3175,25 +3211,41 @@ function SpotInsightSection({
         </details>
         <details className="spot-insight-disclosure">
           <summary>
-            <span>Korrelation</span>
-            <strong>{observationsWithUpstream} Einträge</strong>
+            <span>Pegel-Abfluss-Korrelation</span>
+            <strong>{formatCorrelation(stats.targetLevelFlowCorrelation)}</strong>
           </summary>
           <article className="correlation-card">
-            <span>Modellstatus</span>
-            <strong>Spotinfos fließen automatisch ein</strong>
+            <span>Zielbereich</span>
+            <strong>
+              {correlationHint(
+                stats.targetLevelFlowCorrelation,
+                stats.targetCorrelationCount,
+              )}
+            </strong>
             <p>
-              Neue Sessionwerte speichern bereits Abfluss und Pegel von Krössbach,
-              Puig und Reichenau. Die Wellenqualität wird gegen ähnliche
-              Kombinationen aus Zufluss, Delta und Pegel gewichtet.
+              Für den Zielbereich zählen nur gute Bewertungen ab 4,0/5 mit
+              gespeicherten Reichenau-Pegel- und Abflusswerten. Ab drei passenden
+              Punkten wird hier eine erste Tendenz sichtbar.
             </p>
             <dl>
               <div>
-                <dt>Verknüpfte Einträge</dt>
-                <dd>{observationsWithUpstream}</dd>
+                <dt>Zielbereich Punkte</dt>
+                <dd>{stats.targetCorrelationCount}</dd>
               </div>
               <div>
-                <dt>Bewertung</dt>
-                <dd>Modell + Erfahrung</dd>
+                <dt>Ziel-Korrelation</dt>
+                <dd>{formatCorrelation(stats.targetLevelFlowCorrelation)}</dd>
+              </div>
+              <div>
+                <dt>Alle Spotinfos</dt>
+                <dd>
+                  {formatCorrelation(stats.levelFlowCorrelation)} ·{" "}
+                  {correlationHint(stats.levelFlowCorrelation, stats.levelFlowCount)}
+                </dd>
+              </div>
+              <div>
+                <dt>Fokus</dt>
+                <dd>Pegel + Abfluss gemeinsam bewerten</dd>
               </div>
             </dl>
           </article>
