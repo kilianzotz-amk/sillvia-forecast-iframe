@@ -120,6 +120,20 @@ type DataQualitySignal = {
   note: string;
 };
 
+type WaveQualityProjection = {
+  time: number;
+  delta: number;
+  upstream: number;
+  trend: InflowTrend;
+  level: number | null;
+  volumeBalance60: number | null;
+  score: number;
+  modelScore: number;
+  data: DataQualitySignal;
+  dataScore: number;
+  manual: ManualQualitySignal | null;
+};
+
 type RuntimeComparisonPoint = {
   t: number;
   expected: number;
@@ -1859,7 +1873,7 @@ export default function Home() {
     reichenau: downstreamFlow,
   });
   const qualityNowDataScore = blendDataQuality(qualityNowModelScore, dataNow);
-  const qualityNow = {
+  const qualityNow: WaveQualityProjection = {
     time: waveTime,
     delta: expectedWaveDelta,
     upstream: upstreamAtWave,
@@ -1933,9 +1947,12 @@ export default function Home() {
         score: blendManualQuality(dataScore, manual, point.t),
       };
     });
-  const qualityForecast = [...qualityCandidates, qualityNow].sort(
-    (a, b) => b.score - a.score,
-  )[0];
+  const qualityTimeline = [...qualityCandidates, qualityNow]
+    .sort((a, b) => a.time - b.time)
+    .filter(
+      (point, index, points) =>
+        index === 0 || Math.abs(point.time - points[index - 1].time) > 60 * 1000,
+    );
   const observationsWithUpstream = observations.filter(
     (observation) =>
       observation.kroessbachDischarge !== null ||
@@ -2212,10 +2229,7 @@ export default function Home() {
         </div>
         <div className="quality-grid">
           <WaveQualityCard title="Jetzt" quality={qualityNow} />
-          <WaveQualityCard
-            title="Voraussichtlich nächster rippable Swell 🌊"
-            quality={qualityForecast}
-          />
+          <WaveQualityScale projections={qualityTimeline} />
         </div>
         <DataQualityBox signal={qualityNow.data} />
       </section>
@@ -3168,24 +3182,53 @@ function DataQualityBox({ signal }: { signal: DataQualitySignal }) {
   );
 }
 
+function WaveQualityScale({
+  projections,
+}: {
+  projections: WaveQualityProjection[];
+}) {
+  const best = projections.reduce<WaveQualityProjection | null>(
+    (currentBest, point) =>
+      currentBest === null || point.score > currentBest.score ? point : currentBest,
+    null,
+  );
+
+  return (
+    <article className="quality-scale-card">
+      <div className="quality-scale-head">
+        <div>
+          <span>Nächste 2 Stunden</span>
+          <strong>Wellenqualität im Verlauf</strong>
+        </div>
+        <p>{best ? `Bestwert ${formatTime(best.time)} · ${best.score} %` : "n/a"}</p>
+      </div>
+      <div className="quality-scale" aria-label="Wellenqualität nächste 2 Stunden">
+        {projections.map((point) => (
+          <div
+            key={point.time}
+            className={`quality-scale-point ${qualityTone(point.score)} ${
+              best?.time === point.time ? "best" : ""
+            }`}
+          >
+            <span>{formatTime(point.time)}</span>
+            <div className="quality-scale-track">
+              <i style={{ height: `${Math.max(4, point.score)}%` }} />
+            </div>
+            <strong>{point.score}%</strong>
+          </div>
+        ))}
+        {!projections.length ? <p>Keine Forecastpunkte verfügbar.</p> : null}
+      </div>
+    </article>
+  );
+}
+
 function WaveQualityCard({
   title,
   quality,
 }: {
   title: string;
-  quality: {
-    time: number;
-    delta: number;
-    upstream: number;
-    trend: InflowTrend;
-    level: number | null;
-    volumeBalance60: number | null;
-    score: number;
-    modelScore: number;
-    data: DataQualitySignal;
-    dataScore: number;
-    manual: ManualQualitySignal | null;
-  };
+  quality: WaveQualityProjection;
 }) {
   const tone = qualityTone(quality.score);
 

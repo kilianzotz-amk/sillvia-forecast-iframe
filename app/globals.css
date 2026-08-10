@@ -385,6 +385,106 @@ h3 {
   border-left-color: var(--coral);
 }
 
+.quality-scale-card {
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--teal);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.quality-scale-head {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.quality-scale-head span {
+  color: var(--muted);
+  display: block;
+  font-size: 0.78rem;
+  margin-bottom: 5px;
+}
+
+.quality-scale-head strong {
+  color: var(--ink);
+  font-size: 1.1rem;
+}
+
+.quality-scale-head p {
+  background: #eef4f5;
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 900;
+  margin: 0;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.quality-scale {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+  min-height: 190px;
+}
+
+.quality-scale-point {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+  justify-items: center;
+  min-width: 0;
+}
+
+.quality-scale-point span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.quality-scale-point strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.quality-scale-track {
+  align-items: end;
+  background: #e6ecee;
+  border-radius: 999px;
+  display: flex;
+  height: 112px;
+  justify-content: center;
+  overflow: hidden;
+  width: 18px;
+}
+
+.quality-scale-track i {
+  background: var(--gold);
+  border-radius: 999px 999px 0 0;
+  display: block;
+  width: 100%;
+}
+
+.quality-scale-point.good .quality-scale-track i {
+  background: var(--green);
+}
+
+.quality-scale-point.ok .quality-scale-track i {
+  background: var(--gold);
+}
+
+.quality-scale-point.bad .quality-scale-track i {
+  background: var(--coral);
+}
+
+.quality-scale-point.best .quality-scale-track {
+  box-shadow: 0 0 0 2px rgba(33, 54, 63, 0.22);
+}
+
 .quality-card > div:first-child {
   align-items: start;
   display: flex;
@@ -2072,5 +2172,24 @@ h3 {
 
   .quality-card dl {
     grid-template-columns: 1fr;
+  }
+
+  .quality-scale-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .quality-scale-head p {
+    width: fit-content;
+  }
+
+  .quality-scale {
+    gap: 6px;
+    grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+  }
+
+  .quality-scale-track {
+    height: 96px;
+    width: 14px;
   }
 }
