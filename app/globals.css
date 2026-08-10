@@ -196,6 +196,7 @@ h3 {
 .observation-section,
 .spot-insight-section,
 .setup-section,
+.rain-section,
 .flow-section,
 .forecast-section,
 .archive-section,
@@ -622,10 +623,98 @@ h3 {
 .observation-section,
 .spot-insight-section,
 .setup-section,
+.rain-section,
 .forecast-section,
 .archive-section,
 .chart-section {
   padding: 20px;
+}
+
+.rain-section {
+  background: #fbfdfd;
+  display: grid;
+  gap: 12px;
+}
+
+.rain-section-head {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.rain-section-head p {
+  color: var(--teal-dark);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.rain-section-head h3 {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.rain-source {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 3px;
+  min-width: 150px;
+  padding: 10px 12px;
+}
+
+.rain-source span,
+.rain-summary-card span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.rain-source strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.rain-notice {
+  margin: 0;
+}
+
+.rain-summary-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.rain-summary-card {
+  background: #eef6f7;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
+.rain-summary-card strong {
+  color: var(--ink);
+  font-size: 1.25rem;
+}
+
+.rain-summary-card small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.rain-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.45;
+  margin: 0;
 }
 
 .observation-heading {
@@ -1516,6 +1605,34 @@ h3 {
   stroke-dasharray: 5 6;
 }
 
+.rain-bar {
+  fill: rgba(22, 123, 128, 0.26);
+}
+
+.line.rain-station {
+  stroke-width: 1.5;
+}
+
+.line.rain-station.innsbruck_uni {
+  stroke: #167b80;
+}
+
+.line.rain-station.neustift {
+  stroke: #4f8f55;
+}
+
+.line.rain-station.steinach {
+  stroke: #b77a18;
+}
+
+.line.rain-station.brenner {
+  stroke: #b64f45;
+}
+
+.line.rain-station.patscherkofel {
+  stroke: #6d5bd0;
+}
+
 .trim-axis {
   stroke: rgba(109, 91, 208, 0.22);
   stroke-width: 1;
@@ -1538,6 +1655,10 @@ h3 {
 }
 
 .volume-chart {
+  min-height: 330px;
+}
+
+.rain-chart {
   min-height: 330px;
 }
 
@@ -1705,6 +1826,30 @@ h3 {
 
 .chart-legend .level-range::before {
   background: rgba(63, 124, 72, 0.25);
+}
+
+.chart-legend .rain-area::before {
+  background: rgba(22, 123, 128, 0.32);
+}
+
+.chart-legend .rain-innsbruck_uni::before {
+  background: #167b80;
+}
+
+.chart-legend .rain-neustift::before {
+  background: #4f8f55;
+}
+
+.chart-legend .rain-steinach::before {
+  background: #b77a18;
+}
+
+.chart-legend .rain-brenner::before {
+  background: #b64f45;
+}
+
+.chart-legend .rain-patscherkofel::before {
+  background: #6d5bd0;
 }
 
 .forecast-controls {

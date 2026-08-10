@@ -57,3 +57,24 @@ export const platformSetupLogs = sqliteTable("platform_setup_logs", {
   note: text("note"),
   createdBy: text("created_by"),
 });
+
+export const weatherMeasurements = sqliteTable(
+  "weather_measurements",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    stationId: text("station_id").notNull(),
+    stationName: text("station_name").notNull(),
+    sourceStationId: text("source_station_id").notNull(),
+    source: text("source").notNull(),
+    measuredAt: integer("measured_at").notNull(),
+    collectedAt: integer("collected_at").notNull(),
+    rainMm: real("rain_mm"),
+    unit: text("unit").notNull(),
+  },
+  (table) => [
+    uniqueIndex("weather_measurements_station_measured_idx").on(
+      table.stationId,
+      table.measuredAt,
+    ),
+  ],
+);

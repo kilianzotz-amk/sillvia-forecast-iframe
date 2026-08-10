@@ -56,6 +56,33 @@ type HydroPayload = {
   };
 };
 
+type WeatherStation = {
+  id: string;
+  shortName: string;
+  name: string;
+  region: string;
+  climateId: string;
+  tawesId: string;
+  latLon: [number, number];
+  altitude: number;
+};
+
+type WeatherPoint = {
+  t: number;
+  stationId: string;
+  rainMm: number | null;
+  source: "GeoSphere Klima" | "GeoSphere TAWES";
+};
+
+type WeatherPayload = {
+  fetchedAt: string;
+  source: string;
+  stations: WeatherStation[];
+  history: WeatherPoint[];
+  historySource?: "database" | "geosphere" | "mixed";
+  error?: string;
+};
+
 type HistoryPoint = {
   t: number;
   kroessbach: number | null;
@@ -212,6 +239,14 @@ type VolumeSeriesKey = "volume60";
 
 type LevelSeriesKey = "kroessbach" | "puig" | "reichenau" | "range";
 
+type RainSeriesKey =
+  | "area"
+  | "innsbruck_uni"
+  | "neustift"
+  | "steinach"
+  | "brenner"
+  | "patscherkofel";
+
 const stationOrder = ["202283", "201574", "201624"];
 const historyStorageKey = "sill-surf-forecast-history-v1";
 const settingsStorageKey = "sill-surf-forecast-settings-v1";
@@ -236,6 +271,63 @@ const defaultReviewRange: ReviewRange = {
 const defaultTimeZoom: TimeZoom = {
   detail: 0,
   position: 100,
+};
+const defaultWeatherPayload: WeatherPayload = {
+  fetchedAt: new Date().toISOString(),
+  source: "GeoSphere Austria",
+  history: [],
+  stations: [
+    {
+      id: "innsbruck_uni",
+      shortName: "Innsbruck Uni",
+      name: "Innsbruck Universität",
+      region: "Innsbruck",
+      climateId: "39",
+      tawesId: "11320",
+      latLon: [47.25986, 11.38425],
+      altitude: 578,
+    },
+    {
+      id: "neustift",
+      shortName: "Neustift",
+      name: "Neustift/Milders",
+      region: "Stubaital",
+      climateId: "14701",
+      tawesId: "11324",
+      latLon: [47.10278, 11.29194],
+      altitude: 1007,
+    },
+    {
+      id: "steinach",
+      shortName: "Steinach",
+      name: "Steinach am Brenner",
+      region: "Wipptal",
+      climateId: "139",
+      tawesId: "11329",
+      latLon: [47.09833, 11.46611],
+      altitude: 1036,
+    },
+    {
+      id: "brenner",
+      shortName: "Brenner",
+      name: "Brenner",
+      region: "Wipptal",
+      climateId: "16",
+      tawesId: "11129",
+      latLon: [47.00722, 11.51083],
+      altitude: 1412,
+    },
+    {
+      id: "patscherkofel",
+      shortName: "Patscherkofel",
+      name: "Patscherkofel",
+      region: "Alpin",
+      climateId: "196",
+      tawesId: "11126",
+      latLon: [47.20889, 11.46222],
+      altitude: 2251,
+    },
+  ],
 };
 const reviewPresets: { id: ReviewPreset; label: string }[] = [
   { id: "12h", label: "12 h" },
@@ -965,6 +1057,71 @@ function compactHistory(points: HistoryPoint[], maxPoints = 5000) {
   return compacted.slice(-maxPoints);
 }
 
+function compactWeatherHistory(points: WeatherPoint[], maxPoints = 50000) {
+  const byStationAndTime = new Map<string, WeatherPoint>();
+
+  for (const point of points) {
+    if (!Number.isFinite(point.t)) continue;
+    const t = Math.round(point.t / (10 * 60 * 1000)) * (10 * 60 * 1000);
+    byStationAndTime.set(`${point.stationId}:${t}`, { ...point, t });
+  }
+
+  return [...byStationAndTime.values()]
+    .sort((a, b) => a.t - b.t || a.stationId.localeCompare(b.stationId))
+    .slice(-maxPoints);
+}
+
+function rainfallTotals(
+  points: WeatherPoint[],
+  referenceTime: number,
+  windowMs: number,
+) {
+  const from = referenceTime - windowMs;
+  const totals = new Map<string, number>();
+
+  for (const point of points) {
+    if (point.rainMm === null || point.t < from || point.t > referenceTime) continue;
+    totals.set(point.stationId, (totals.get(point.stationId) ?? 0) + point.rainMm);
+  }
+
+  const values = [...totals.values()];
+  const areaMean = values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0;
+  const maxStation = values.length ? Math.max(...values) : 0;
+
+  return {
+    areaMean,
+    maxStation,
+    stationCount: values.length,
+  };
+}
+
+function aggregateRainSeries(points: WeatherPoint[]) {
+  const byTime = new Map<number, number[]>();
+
+  for (const point of points) {
+    if (point.rainMm === null) continue;
+    const values = byTime.get(point.t) ?? [];
+    values.push(point.rainMm);
+    byTime.set(point.t, values);
+  }
+
+  return [...byTime.entries()]
+    .map(([t, values]) => ({
+      t,
+      value: values.reduce((sum, value) => sum + value, 0) / values.length,
+    }))
+    .sort((a, b) => a.t - b.t);
+}
+
+function weatherStationSeries(points: WeatherPoint[], stationId: string) {
+  return points
+    .filter((point) => point.stationId === stationId)
+    .map((point) => ({ t: point.t, value: point.rainMm }))
+    .sort((a, b) => a.t - b.t);
+}
+
 function readStoredReviewRange() {
   if (typeof window === "undefined") return defaultReviewRange;
   try {
@@ -1444,6 +1601,9 @@ export default function Home() {
   const [chartType, setChartType] = useState<"W" | "Q">("W");
   const [nowMs] = useState(() => Date.now());
   const [history, setHistory] = useState<HistoryPoint[]>(() => readStoredHistory());
+  const [weatherPayload, setWeatherPayload] =
+    useState<WeatherPayload>(defaultWeatherPayload);
+  const [weatherError, setWeatherError] = useState("");
   const [forecastSettings, setForecastSettings] = useState<ForecastSettings>(() =>
     readStoredSettings(),
   );
@@ -1524,6 +1684,7 @@ export default function Home() {
       } else {
         recordHistory(orderedPayload);
       }
+      void refreshWeather(historyHours);
       void refreshObservations(historyHours);
       void refreshSetupLogs();
     } catch (err) {
@@ -1546,6 +1707,26 @@ export default function Home() {
       setObservations(sortSurfObservations(data.observations ?? []));
     } catch {
       setObservations([]);
+    }
+  }
+
+  async function refreshWeather(historyHours = reviewRangeHours(reviewRange)) {
+    setWeatherError("");
+    try {
+      const response = await fetch(
+        `/api/weather?hours=${Math.ceil(Math.max(24, historyHours))}`,
+        { cache: "no-store" },
+      );
+      const data = (await response.json()) as WeatherPayload;
+      if (!response.ok) throw new Error(data.error ?? "Wetterdaten nicht verfügbar");
+      setWeatherPayload({
+        ...defaultWeatherPayload,
+        ...data,
+        stations: data.stations?.length ? data.stations : defaultWeatherPayload.stations,
+        history: compactWeatherHistory(data.history ?? []),
+      });
+    } catch (err) {
+      setWeatherError(err instanceof Error ? err.message : "Wetterdaten nicht verfügbar");
     }
   }
 
@@ -1882,6 +2063,13 @@ export default function Home() {
   const expectedWaveDelta =
     valueAt(deltaLine, waveTime) ?? downstreamFlow - upstreamFlow;
   const volumeBalance = volumeBalanceSummary(deltaLine, waveTime);
+  const visibleWeatherPoints = weatherPayload.history.filter(
+    (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
+  );
+  const rain1h = rainfallTotals(weatherPayload.history, waveTime, 60 * 60 * 1000);
+  const rain3h = rainfallTotals(weatherPayload.history, waveTime, 3 * 60 * 60 * 1000);
+  const rain6h = rainfallTotals(weatherPayload.history, waveTime, 6 * 60 * 60 * 1000);
+  const rain12h = rainfallTotals(weatherPayload.history, waveTime, 12 * 60 * 60 * 1000);
   const currentInflowTrend = inflowTrendAt(forecastHistory, waveTime);
   const waveInflowTrend = inflowTrendAt(
     forecastHistory,
@@ -2296,6 +2484,17 @@ export default function Home() {
                   balance30={volumeBalance.balance30}
                   balance60={volumeBalance.balance60}
                   balance120={volumeBalance.balance120}
+                />
+                <RainfallSection
+                  weather={weatherPayload}
+                  visiblePoints={visibleWeatherPoints}
+                  timeDomain={chartTimeDomain}
+                  markerTime={lastMeasurementTime}
+                  rain1h={rain1h}
+                  rain3h={rain3h}
+                  rain6h={rain6h}
+                  rain12h={rain12h}
+                  error={weatherError}
                 />
                 <SurfLevelChart
                   history={forecastHistory}
@@ -2739,8 +2938,8 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 43 · Autor: Kilian Zotz · Quelle: {payload.source}. Messstellen:
-        202283, 201574, 201624.
+        Version 44 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
   );
@@ -4030,6 +4229,230 @@ function SurfVolumeBalanceChart({
         >
           Volumenbilanz 60 min
         </LegendToggle>
+      </div>
+    </div>
+  );
+}
+
+function RainfallSection({
+  weather,
+  visiblePoints,
+  timeDomain,
+  markerTime,
+  rain1h,
+  rain3h,
+  rain6h,
+  rain12h,
+  error,
+}: {
+  weather: WeatherPayload;
+  visiblePoints: WeatherPoint[];
+  timeDomain: TimeDomain;
+  markerTime: number;
+  rain1h: ReturnType<typeof rainfallTotals>;
+  rain3h: ReturnType<typeof rainfallTotals>;
+  rain6h: ReturnType<typeof rainfallTotals>;
+  rain12h: ReturnType<typeof rainfallTotals>;
+  error: string;
+}) {
+  return (
+    <section className="rain-section">
+      <div className="rain-section-head">
+        <div>
+          <p>
+            Regenanalyse <span className="beta-badge">BETA</span>
+          </p>
+          <h3>GeoSphere Niederschlag im Einzugsgebiet</h3>
+        </div>
+        <div className="rain-source">
+          <span>{weather.historySource === "database" ? "Datenbank" : "Quelle"}</span>
+          <strong>{weather.historySource === "database" ? "mitgeschrieben" : "GeoSphere"}</strong>
+        </div>
+      </div>
+      {error ? <div className="notice rain-notice">{error}</div> : null}
+      <div className="rain-summary-grid">
+        <RainSummaryCard label="Letzte 1 h" total={rain1h} />
+        <RainSummaryCard label="Letzte 3 h" total={rain3h} />
+        <RainSummaryCard label="Letzte 6 h" total={rain6h} />
+        <RainSummaryCard label="Letzte 12 h" total={rain12h} />
+      </div>
+      <RainfallChart
+        stations={weather.stations}
+        points={visiblePoints}
+        timeDomain={timeDomain}
+        markerTime={markerTime}
+      />
+      <p className="rain-note">
+        Die Balken zeigen das Gebietsmittel der ausgewählten Stationen. Das Signal
+        wird erst nach der Auswertung gegen Delta, Pegel und Abfluss in die
+        Wellenqualität gewichtet.
+      </p>
+    </section>
+  );
+}
+
+function RainSummaryCard({
+  label,
+  total,
+}: {
+  label: string;
+  total: ReturnType<typeof rainfallTotals>;
+}) {
+  return (
+    <article className="rain-summary-card">
+      <span>{label}</span>
+      <strong>{formatNumber(total.areaMean, 1)} mm</strong>
+      <small>
+        Max Station {formatNumber(total.maxStation, 1)} mm · {total.stationCount} Stationen
+      </small>
+    </article>
+  );
+}
+
+function RainfallChart({
+  stations,
+  points,
+  timeDomain,
+  markerTime,
+}: {
+  stations: WeatherStation[];
+  points: WeatherPoint[];
+  timeDomain: TimeDomain;
+  markerTime: number;
+}) {
+  const [visible, setVisible] = useState<Record<RainSeriesKey, boolean>>({
+    area: true,
+    innsbruck_uni: false,
+    neustift: true,
+    steinach: true,
+    brenner: true,
+    patscherkofel: false,
+  });
+  const toggle = (key: RainSeriesKey) =>
+    setVisible((current) => ({ ...current, [key]: !current[key] }));
+  const aggregate = aggregateRainSeries(points);
+  const stationLines = stations.map((station) => ({
+    station,
+    points: weatherStationSeries(points, station.id),
+  }));
+  const activeStationValues = stationLines
+    .filter((series) => visible[series.station.id as RainSeriesKey])
+    .flatMap((series) => series.points)
+    .map((point) => point.value)
+    .filter((value): value is number => typeof value === "number");
+  const aggregateValues = visible.area
+    ? aggregate.map((point) => point.value)
+    : [];
+  const allValues = [...aggregateValues, ...activeStationValues];
+  const minT = timeDomain.min;
+  const maxT = timeDomain.max;
+  const maxValue = Math.max(1, ...allValues) * 1.22;
+  const width = 820;
+  const height = 290;
+  const plot = { left: 58, top: 40, right: 24, bottom: 42 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const x = (t: number) =>
+    plot.left + ((t - minT) / Math.max(1, maxT - minT)) * plotWidth;
+  const y = (value: number) =>
+    plot.top + plotHeight - (value / Math.max(1, maxValue)) * plotHeight;
+  const yTicks = Array.from({ length: 5 }, (_, index) =>
+    Number(((maxValue / 4) * index).toFixed(1)),
+  );
+  const xTicks = timeAxisTicks(minT, maxT);
+  const gridTicks = timeGridTicks(minT, maxT);
+  const markerX = x(markerTime);
+  const barWidth = clamp((plotWidth / Math.max(1, aggregate.length)) * 0.72, 2, 10);
+
+  return (
+    <div className="forecast-chart rain-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <title>Regen im Verhältnis zur Zeit</title>
+        <text className="chart-title" x={plot.left} y={18}>
+          Niederschlag im Zeitverlauf
+        </text>
+        <text className="chart-subtitle" x={plot.left} y={34}>
+          10-min Regenwerte in mm, gleiche Zeitachse wie Abfluss und Pegel
+        </text>
+        {gridTicks.map((tick) => (
+          <line
+            key={tick.t}
+            className={`time-grid-line ${tick.major ? "major" : "minor"}`}
+            x1={x(tick.t)}
+            x2={x(tick.t)}
+            y1={plot.top}
+            y2={plot.top + plotHeight}
+          />
+        ))}
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line
+              className="grid-line"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={y(tick)}
+              y2={y(tick)}
+            />
+            <text x={12} y={y(tick) + 4}>
+              {formatNumber(tick, 1)}
+            </text>
+          </g>
+        ))}
+        {visible.area
+          ? aggregate.map((point) => (
+              <rect
+                key={point.t}
+                className="rain-bar"
+                x={x(point.t) - barWidth / 2}
+                y={y(point.value)}
+                width={barWidth}
+                height={Math.max(1, plot.top + plotHeight - y(point.value))}
+              />
+            ))
+          : null}
+        {stationLines.map(({ station, points: stationPoints }) =>
+          visible[station.id as RainSeriesKey] ? (
+            <path
+              key={station.id}
+              className={`line rain-station ${station.id}`}
+              d={linePath(stationPoints, x, y)}
+            />
+          ) : null,
+        )}
+        {xTicks.map((tick) => (
+          <text key={tick} x={x(tick)} y={height - 12} textAnchor="middle">
+            {formatAxisTime(tick, maxT - minT)}
+          </text>
+        ))}
+        {markerX >= plot.left && markerX <= width - plot.right ? (
+          <g>
+            <line
+              className="marker-line"
+              x1={markerX}
+              x2={markerX}
+              y1={plot.top}
+              y2={plot.top + plotHeight}
+            />
+            <text className="marker-label" x={markerX + 7} y={plot.top + 12}>
+              Messpunkt
+            </text>
+          </g>
+        ) : null}
+      </svg>
+      <div className="chart-legend">
+        <LegendToggle name="rain-area" active={visible.area} onClick={() => toggle("area")}>
+          Gebietsmittel Regen
+        </LegendToggle>
+        {stations.map((station) => (
+          <LegendToggle
+            key={station.id}
+            name={`rain-${station.id}`}
+            active={visible[station.id as RainSeriesKey]}
+            onClick={() => toggle(station.id as RainSeriesKey)}
+          >
+            {station.shortName}
+          </LegendToggle>
+        ))}
       </div>
     </div>
   );

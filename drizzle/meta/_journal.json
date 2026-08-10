@@ -43,6 +43,13 @@
       "when": 1786362263788,
       "tag": "0005_platform_setup_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786381200000,
+      "tag": "0006_weather_measurements",
+      "breakpoints": true
     }
   ]
 }
