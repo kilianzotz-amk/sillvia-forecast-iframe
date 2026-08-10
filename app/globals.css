@@ -1392,6 +1392,7 @@ h3 {
 .forecast-status span,
 .runtime-control span,
 .surf-window span,
+.learned-window span,
 .arrival-list dt {
   color: var(--muted);
   font-size: 0.78rem;
@@ -1991,6 +1992,25 @@ h3 {
   min-width: 0;
   padding: 0 10px;
   width: 100%;
+}
+
+.learned-window {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+}
+
+.learned-window strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.learned-window small {
+  color: var(--muted);
+  font-weight: 750;
 }
 
 .arrival-list {

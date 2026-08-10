@@ -206,6 +206,27 @@ type ForecastSettings = {
   levelMax: number;
 };
 
+type ExperienceTargets = {
+  flowMin: number;
+  flowMax: number;
+  levelMin: number;
+  levelMax: number;
+  sampleSize: number;
+  sameSetupCount: number;
+  confidence: number;
+  basis: "aktuelles Setup" | "alle Setups" | "Fallback";
+};
+
+type SpotInsightStats = {
+  total: number;
+  linked: number;
+  good: number;
+  critical: number;
+  averageGoodQuality: number | null;
+  averageGoodTrim: number | null;
+  goodDeltaAverage: number | null;
+};
+
 type ReviewPreset = "12h" | "24h" | "week" | "month" | "year" | "all" | "custom";
 
 type ReviewRange = {
@@ -255,6 +276,7 @@ const settingsStorageKey = "sill-surf-forecast-settings-v1";
 const reviewRangeStorageKey = "sill-surf-review-range-v1";
 const sampleInterval = 15 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
+const observationLearningHours = 365 * 24;
 const platformSetupChangeAt = new Date("2026-08-06T00:00:00+02:00").getTime();
 const defaultForecastSettings: ForecastSettings = {
   lagKroessbach: 115,
@@ -264,6 +286,16 @@ const defaultForecastSettings: ForecastSettings = {
   surfMax: 22,
   levelMin: 240,
   levelMax: 285,
+};
+const fallbackExperienceTargets: ExperienceTargets = {
+  flowMin: defaultForecastSettings.surfMin,
+  flowMax: defaultForecastSettings.surfMax,
+  levelMin: defaultForecastSettings.levelMin,
+  levelMax: defaultForecastSettings.levelMax,
+  sampleSize: 0,
+  sameSetupCount: 0,
+  confidence: 0,
+  basis: "Fallback",
 };
 const defaultReviewRange: ReviewRange = {
   preset: "24h",
@@ -341,44 +373,6 @@ const reviewPresets: { id: ReviewPreset; label: string }[] = [
   { id: "all", label: "Alle Daten" },
   { id: "custom", label: "Zeitraum" },
 ];
-const spotInsightSummary = {
-  sample: "27 Spotinfos aus 36 SurfInn Sessions",
-  good: [
-    {
-      label: "Rippable Fenster",
-      value: "ca. 16-22 m³/s",
-      detail: "oft gut, wenn Reichenau ruhig bleibt und der Pegel grob im 276-284 cm Bereich liegt.",
-    },
-    {
-      label: "Kanal / KW",
-      value: "kontrollierter Zufluss",
-      detail: "kann Druck geben, solange die Sill nicht sprunghaft hochkommt.",
-    },
-    {
-      label: "Trim-Hinweis",
-      value: "220-225 cm",
-      detail: "taucht mehrfach als brauchbarer Bereich auf; niedriger bedeutet stärker getrimmt.",
-    },
-  ],
-  bad: [
-    {
-      label: "Sill-Spikes",
-      value: "schneller Anstieg",
-      detail: "Spotinfos nennen dann oft abgesoffen, braunes Wasser, Treibgut oder stark wechselnde Welle.",
-    },
-    {
-      label: "Hoher Pegel",
-      value: "> ca. 290 cm",
-      detail: "tendenziell weniger Halt und mehr Weißwasser; es gibt aber Ausnahmen.",
-    },
-    {
-      label: "Zu wenig Kanal",
-      value: "wenig Druck",
-      detail: "bei niedrigem Zufluss wirkt die Welle eher klein oder schwach.",
-    },
-  ],
-};
-
 const fallbackPayload: HydroPayload = {
   fetchedAt: new Date().toISOString(),
   source: "Hydro Online Tirol",
@@ -834,6 +828,139 @@ function observationDataFeatures(observation: SurfObservation) {
     reichenau: observation.reichenauDischarge,
     level: observation.reichenauLevel,
     delta,
+  };
+}
+
+function average(values: number[]) {
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function percentile(values: number[], ratio: number) {
+  const sorted = values
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  if (sorted.length === 1) return sorted[0];
+
+  const position = clamp(ratio, 0, 1) * (sorted.length - 1);
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  const mix = position - lower;
+  return sorted[lower] * (1 - mix) + sorted[upper] * mix;
+}
+
+function rangeFromValues(
+  values: number[],
+  fallbackMin: number,
+  fallbackMax: number,
+  minWidth: number,
+) {
+  const low = percentile(values, 0.2);
+  const high = percentile(values, 0.8);
+
+  if (low === null || high === null) {
+    return { min: fallbackMin, max: fallbackMax };
+  }
+
+  const center = (low + high) / 2;
+  const width = Math.max(minWidth, high - low);
+  return {
+    min: center - width / 2,
+    max: center + width / 2,
+  };
+}
+
+function learnedExperienceTargets(
+  observations: SurfObservation[],
+  referenceTime: number,
+): ExperienceTargets {
+  const rated = observations.filter(isRealObservation);
+  const targetIsNewSetup = referenceTime >= platformSetupChangeAt;
+  const good = rated.filter((observation) => observation.quality >= 4);
+  const sameSetupGood = good.filter((observation) =>
+    targetIsNewSetup
+      ? observation.observedAt >= platformSetupChangeAt
+      : observation.observedAt < platformSetupChangeAt,
+  );
+  const basis =
+    sameSetupGood.length >= 3
+      ? sameSetupGood
+      : good.length >= 3
+        ? good
+        : [];
+
+  if (!basis.length) return fallbackExperienceTargets;
+
+  const flowValues = basis
+    .map((observation) => observationDataFeatures(observation).upstream)
+    .filter((value): value is number => value !== null);
+  const levelValues = basis
+    .map((observation) => observation.reichenauLevel)
+    .filter((value): value is number => value !== null);
+  const flowRange = rangeFromValues(
+    flowValues,
+    fallbackExperienceTargets.flowMin,
+    fallbackExperienceTargets.flowMax,
+    2,
+  );
+  const levelRange = rangeFromValues(
+    levelValues,
+    fallbackExperienceTargets.levelMin,
+    fallbackExperienceTargets.levelMax,
+    6,
+  );
+  const hasCurrentSetup = sameSetupGood.length >= 3;
+  const dataCompleteness = Math.min(flowValues.length, levelValues.length);
+  const confidence = Math.round(
+    clamp(
+      (Math.min(basis.length / 12, 1) * 0.55 +
+        Math.min(dataCompleteness / 8, 1) * 0.45) *
+        (hasCurrentSetup ? 1 : 0.55),
+      0,
+      1,
+    ) * 100,
+  );
+
+  return {
+    flowMin: Math.max(0, flowRange.min),
+    flowMax: Math.max(flowRange.max, flowRange.min + 0.5),
+    levelMin: Math.max(0, levelRange.min),
+    levelMax: Math.max(levelRange.max, levelRange.min + 1),
+    sampleSize: basis.length,
+    sameSetupCount: sameSetupGood.length,
+    confidence,
+    basis: hasCurrentSetup ? "aktuelles Setup" : "alle Setups",
+  };
+}
+
+function spotInsightStats(observations: SurfObservation[]): SpotInsightStats {
+  const real = observations.filter(isRealObservation);
+  const good = real.filter((observation) => observation.quality >= 4);
+  const critical = real.filter((observation) => observation.quality <= 2.5);
+  const linked = real.filter((observation) => {
+    const features = observationDataFeatures(observation);
+    return (
+      features.upstream !== null ||
+      features.level !== null ||
+      features.reichenau !== null
+    );
+  });
+  const goodDeltas = good
+    .map((observation) => observationDataFeatures(observation).delta)
+    .filter((value): value is number => value !== null);
+  const goodTrims = good
+    .map((observation) => observation.trimCm)
+    .filter((value): value is number => value !== null);
+
+  return {
+    total: real.length,
+    linked: linked.length,
+    good: good.length,
+    critical: critical.length,
+    averageGoodQuality: average(good.map((observation) => observation.quality)),
+    averageGoodTrim: average(goodTrims),
+    goodDeltaAverage: average(goodDeltas),
   };
 }
 
@@ -1726,7 +1853,9 @@ export default function Home() {
   async function refreshObservations(historyHours = reviewRangeHours(reviewRange)) {
     try {
       const response = await fetch(
-        `/api/surf-observations?hours=${Math.ceil(Math.max(72, historyHours))}`,
+        `/api/surf-observations?hours=${Math.ceil(
+          Math.max(observationLearningHours, historyHours),
+        )}`,
         { cache: "no-store" },
       );
       if (!response.ok) throw new Error("Beobachtungen nicht verfügbar");
@@ -2128,14 +2257,16 @@ export default function Home() {
   const levelAtWave =
     latestAt(forecastHistory, waveTime, "reichenauLevel") ??
     valueOrNull(reichenau?.water.value);
+  const experienceTargets = learnedExperienceTargets(observations, waveTime);
+  const insightStats = spotInsightStats(observations);
   const qualityNowModelScore = waveQualityScore(
     expectedWaveDelta,
     upstreamAtWave,
     levelAtWave,
-    forecastSettings.surfMin,
-    forecastSettings.surfMax,
-    forecastSettings.levelMin,
-    forecastSettings.levelMax,
+    experienceTargets.flowMin,
+    experienceTargets.flowMax,
+    experienceTargets.levelMin,
+    experienceTargets.levelMax,
     volumeBalance.balance60,
   );
   const manualNow = recentManualSignal(observations, waveTime);
@@ -2192,10 +2323,10 @@ export default function Home() {
         point.value,
         upstream,
         level,
-        forecastSettings.surfMin,
-        forecastSettings.surfMax,
-        forecastSettings.levelMin,
-        forecastSettings.levelMax,
+        experienceTargets.flowMin,
+        experienceTargets.flowMax,
+        experienceTargets.levelMin,
+        experienceTargets.levelMax,
         candidateVolumeBalance60,
       );
       const manual = recentManualSignal(observations, point.t);
@@ -2469,7 +2600,11 @@ export default function Home() {
         <DataQualityBox signal={qualityNow.data} />
       </section>
 
-      <SpotInsightSection observationsWithUpstream={observationsWithUpstream} />
+      <SpotInsightSection
+        stats={insightStats}
+        targets={experienceTargets}
+        observationsWithUpstream={observationsWithUpstream}
+      />
 
       <section className="forecast-section">
         <div className="section-heading forecast-heading">
@@ -2516,8 +2651,8 @@ export default function Home() {
                   forecast={forecastLine}
                   timeDomain={chartTimeDomain}
                   markerTime={lastMeasurementTime}
-                  surfMin={Math.min(forecastSettings.surfMin, forecastSettings.surfMax)}
-                  surfMax={Math.max(forecastSettings.surfMin, forecastSettings.surfMax)}
+                  surfMin={Math.min(experienceTargets.flowMin, experienceTargets.flowMax)}
+                  surfMax={Math.max(experienceTargets.flowMin, experienceTargets.flowMax)}
                   observations={observations}
                 />
                 <SurfDeltaChart
@@ -2552,8 +2687,8 @@ export default function Home() {
                   history={forecastHistory}
                   timeDomain={chartTimeDomain}
                   markerTime={lastMeasurementTime}
-                  levelMin={Math.min(forecastSettings.levelMin, forecastSettings.levelMax)}
-                  levelMax={Math.max(forecastSettings.levelMin, forecastSettings.levelMax)}
+                  levelMin={Math.min(experienceTargets.levelMin, experienceTargets.levelMax)}
+                  levelMax={Math.max(experienceTargets.levelMin, experienceTargets.levelMax)}
                 />
               </div>
             </div>
@@ -2777,67 +2912,17 @@ export default function Home() {
                 }))
               }
             />
-            <div className="surf-window">
-              <span>Zielbereich</span>
-              <div>
-                <input
-                  aria-label="Unterer Zielbereich"
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={forecastSettings.surfMin}
-                  onChange={(event) =>
-                    setForecastSettings((settings) => ({
-                      ...settings,
-                      surfMin: Number(event.target.value),
-                    }))
-                  }
-                />
-                <input
-                  aria-label="Oberer Zielbereich"
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  value={forecastSettings.surfMax}
-                  onChange={(event) =>
-                    setForecastSettings((settings) => ({
-                      ...settings,
-                      surfMax: Number(event.target.value),
-                    }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="surf-window">
-              <span>Pegel-Zielbereich</span>
-              <div>
-                <input
-                  aria-label="Unterer Pegel-Zielbereich"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={forecastSettings.levelMin}
-                  onChange={(event) =>
-                    setForecastSettings((settings) => ({
-                      ...settings,
-                      levelMin: Number(event.target.value),
-                    }))
-                  }
-                />
-                <input
-                  aria-label="Oberer Pegel-Zielbereich"
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={forecastSettings.levelMax}
-                  onChange={(event) =>
-                    setForecastSettings((settings) => ({
-                      ...settings,
-                      levelMax: Number(event.target.value),
-                    }))
-                  }
-                />
-              </div>
+            <div className="learned-window">
+              <span>Erfahrungsbereich</span>
+              <strong>
+                {formatNumber(experienceTargets.flowMin, 1)}-
+                {formatNumber(experienceTargets.flowMax, 1)} m³/s
+              </strong>
+              <small>
+                Pegel {formatNumber(experienceTargets.levelMin, 0)}-
+                {formatNumber(experienceTargets.levelMax, 0)} cm ·{" "}
+                {experienceTargets.basis}
+              </small>
             </div>
             <dl className="arrival-list">
               <div>
@@ -2990,7 +3075,7 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 49 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 50 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
@@ -2998,41 +3083,95 @@ export default function Home() {
 }
 
 function SpotInsightSection({
+  stats,
+  targets,
   observationsWithUpstream,
 }: {
+  stats: SpotInsightStats;
+  targets: ExperienceTargets;
   observationsWithUpstream: number;
 }) {
+  const hasLearnedTargets = targets.sampleSize > 0;
+
   return (
     <section className="spot-insight-section">
       <div className="section-heading spot-insight-heading">
         <div>
           <p>Spotinfos</p>
-          <h2>Muster für gute und schlechte Konditionen</h2>
+          <h2>Lernbereich aus Wellenmeisterwerten</h2>
         </div>
         <div className="spot-insight-source">
           <span>Datenbasis</span>
-          <strong>{spotInsightSummary.sample}</strong>
+          <strong>{stats.linked} verknüpfte Werte</strong>
         </div>
       </div>
 
       <div className="spot-insight-grid">
         <details className="spot-insight-disclosure good">
           <summary>
-            <span>Eher gut</span>
-            <strong>{spotInsightSummary.good.length} Hinweise</strong>
+            <span>Erfahrungs-Zielbereich</span>
+            <strong>{hasLearnedTargets ? `${targets.confidence} % sicher` : "Fallback"}</strong>
           </summary>
-          <InsightColumn title="Eher gut" tone="good" items={spotInsightSummary.good} />
+          <article className="correlation-card">
+            <span>Aus guten Bewertungen berechnet</span>
+            <strong>
+              {formatNumber(targets.flowMin, 1)}-
+              {formatNumber(targets.flowMax, 1)} m³/s ·{" "}
+              {formatNumber(targets.levelMin, 0)}-
+              {formatNumber(targets.levelMax, 0)} cm
+            </strong>
+            <p>
+              Dieser Bereich wird automatisch aus Wellenmeisterwerten ab 4,0/5
+              konstruiert. Das aktuelle Setup wird bevorzugt, sobald mindestens
+              drei gute Werte dafür vorhanden sind.
+            </p>
+            <dl>
+              <div>
+                <dt>Basis</dt>
+                <dd>{targets.basis}</dd>
+              </div>
+              <div>
+                <dt>Gute Werte</dt>
+                <dd>{targets.sampleSize}</dd>
+              </div>
+              <div>
+                <dt>Neues Setup</dt>
+                <dd>{targets.sameSetupCount}</dd>
+              </div>
+            </dl>
+          </article>
         </details>
         <details className="spot-insight-disclosure bad">
           <summary>
-            <span>Eher kritisch</span>
-            <strong>{spotInsightSummary.bad.length} Hinweise</strong>
+            <span>Gute / kritische Konditionen</span>
+            <strong>{stats.good} / {stats.critical}</strong>
           </summary>
-          <InsightColumn
-            title="Eher kritisch"
-            tone="bad"
-            items={spotInsightSummary.bad}
-          />
+          <article className="correlation-card">
+            <span>Aktuelle Lerntendenz</span>
+            <strong>
+              {stats.averageGoodQuality === null
+                ? "noch zu wenig Daten"
+                : `${formatQuality(stats.averageGoodQuality)}/5 bei Trim ${formatTrimCm(
+                    stats.averageGoodTrim,
+                    "",
+                  )}`}
+            </strong>
+            <p>
+              Gute Werte schieben Ziel-Pegel und Ziel-Abfluss mit der Zeit enger.
+              Kritische Werte helfen dem Datenmodell, ähnliche Situationen
+              abzuwerten.
+            </p>
+            <dl>
+              <div>
+                <dt>Alle Bewertungen</dt>
+                <dd>{stats.total}</dd>
+              </div>
+              <div>
+                <dt>Ø Delta gut</dt>
+                <dd>{formatSignedNumber(stats.goodDeltaAverage, 2)} m³/s</dd>
+              </div>
+            </dl>
+          </article>
         </details>
         <details className="spot-insight-disclosure">
           <summary>
@@ -3040,13 +3179,12 @@ function SpotInsightSection({
             <strong>{observationsWithUpstream} Einträge</strong>
           </summary>
           <article className="correlation-card">
-            <span>Nächster Lernschritt</span>
-            <strong>Puig + Krössbach Korrelation</strong>
+            <span>Modellstatus</span>
+            <strong>Spotinfos fließen automatisch ein</strong>
             <p>
               Neue Sessionwerte speichern bereits Abfluss und Pegel von Krössbach,
-              Puig und Reichenau. Sobald genug Bewertungen da sind, vergleichen wir
-              Wellenqualität gegen einzelne Zuflüsse, Summe, Delta, Pegel und
-              Änderungsrate.
+              Puig und Reichenau. Die Wellenqualität wird gegen ähnliche
+              Kombinationen aus Zufluss, Delta und Pegel gewichtet.
             </p>
             <dl>
               <div>
@@ -3054,8 +3192,8 @@ function SpotInsightSection({
                 <dd>{observationsWithUpstream}</dd>
               </div>
               <div>
-                <dt>Hypothese</dt>
-                <dd>Menge + Trend + KW/Kanal-Umschaltung</dd>
+                <dt>Bewertung</dt>
+                <dd>Modell + Erfahrung</dd>
               </div>
             </dl>
           </article>
@@ -3370,31 +3508,6 @@ function PlatformSetupSection({
   );
 }
 
-function InsightColumn({
-  title,
-  tone,
-  items,
-}: {
-  title: string;
-  tone: "good" | "bad";
-  items: { label: string; value: string; detail: string }[];
-}) {
-  return (
-    <article className={`insight-column ${tone}`}>
-      <h3>{title}</h3>
-      <div>
-        {items.map((item) => (
-          <section key={item.label}>
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-            <p>{item.detail}</p>
-          </section>
-        ))}
-      </div>
-    </article>
-  );
-}
-
 function Metric({
   label,
   value,
@@ -3624,7 +3737,7 @@ function RuntimeCorrelationPanel({
         </div>
         <div>
           <dt>Lernwerte Spotinfos</dt>
-          <dd>noch nicht automatisch gewichtet</dd>
+          <dd>automatisch in Wellenqualität gewichtet</dd>
         </div>
       </dl>
     </section>
@@ -4001,7 +4114,7 @@ function SurfForecastChart({
           Sessionwerte
         </LegendToggle>
         <LegendToggle name="range" active={visible.range} onClick={() => toggle("range")}>
-          Zielbereich
+          Erfahrungsbereich
         </LegendToggle>
       </div>
     </div>
@@ -4709,7 +4822,7 @@ function SurfLevelChart({
           Reichenau Pegel
         </LegendToggle>
         <LegendToggle name="level-range" active={visible.range} onClick={() => toggle("range")}>
-          Pegel-Zielbereich
+          Pegel-Erfahrungsbereich
         </LegendToggle>
       </div>
     </div>
