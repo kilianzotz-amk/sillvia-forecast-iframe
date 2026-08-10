@@ -2176,45 +2176,6 @@ export default function Home() {
 
       {error ? <div className="notice">Liveabruf nicht verfügbar: {error}</div> : null}
 
-      <section className="kpi-grid" aria-label="Zusammenfassung">
-        <Metric
-          label="Zuflüsse Krössbach + Puig"
-          value={formatNumber(upstreamFlow, 2)}
-          unit="m³/s"
-        />
-        <Metric
-          label="Reichenau"
-          value={formatNumber(downstreamFlow, 2)}
-          unit="m³/s"
-        />
-        <Metric
-          label="Erwartetes Delta Welle"
-          value={`${expectedWaveDelta >= 0 ? "+" : ""}${formatNumber(expectedWaveDelta, 2)}`}
-          unit="m³/s"
-          tone={Math.abs(expectedWaveDelta) > upstreamFlow * 0.2 ? "watch" : "normal"}
-        />
-        <Metric
-          label="Unterlieger im Verhältnis"
-          value={formatNumber(ratio, 0)}
-          unit="%"
-        />
-        <Metric
-          label="Zufluss-Tendenz"
-          value={currentInflowTrend.label}
-          unit={`${formatSignedNumber(currentInflowTrend.delta60, 2)} m³/s / 60 min`}
-        />
-        <Metric
-          label="Volumenbilanz 60 min"
-          value={formatVolume(volumeBalance.balance60)}
-          unit="m³"
-          tone={
-            Math.abs(volumeBalance.balance60 ?? 0) > Math.max(900, upstreamFlow * 180)
-              ? "watch"
-              : "normal"
-          }
-        />
-      </section>
-
       <section className="quality-section">
         <div className="section-heading quality-heading">
           <div>
@@ -2235,36 +2196,6 @@ export default function Home() {
       </section>
 
       <SpotInsightSection observationsWithUpstream={observationsWithUpstream} />
-
-      <PlatformSetupSection
-        setupLogs={setupLogs}
-        setupForm={setupForm}
-        setupMessage={setupMessage}
-        setupSaving={setupSaving}
-        deletingSetupId={deletingSetupId}
-        onFormChange={setSetupForm}
-        onSubmit={submitSetupLog}
-        onDelete={deleteSetupLog}
-      />
-
-      <section className="flow-section">
-        <div className="section-heading">
-          <p>Abflussmodell</p>
-          <h2>Oberlieger gegen Reichenau</h2>
-        </div>
-        <div className="flow-model">
-          <FlowNode station={kr} accent="teal" />
-          <FlowNode station={puig} accent="gold" />
-          <div className="merge-node">
-            <span>Σ</span>
-            <strong>{formatNumber(upstreamFlow, 2)} m³/s</strong>
-          </div>
-          <FlowNode station={reichenau} accent="coral" />
-        </div>
-        <div className="balance-bar" aria-label="Abflussverhältnis">
-          <div style={{ width: `${Math.min(100, ratio)}%` }} />
-        </div>
-      </section>
 
       <section className="forecast-section">
         <div className="section-heading forecast-heading">
@@ -2338,7 +2269,11 @@ export default function Home() {
               </div>
             </div>
 
-            <section className="observation-section">
+            <details className="dashboard-disclosure observation-section">
+              <summary>
+                <span>Wellenmeisterwerte</span>
+                <strong>{observations.length} Einträge</strong>
+              </summary>
               <div className="section-heading observation-heading">
                 <div>
                   <p>Wellenmeister</p>
@@ -2443,8 +2378,8 @@ export default function Home() {
                 <p className="observation-message">{observationMessage}</p>
               ) : null}
 
-              <div className="observation-list" aria-label="Letzte Sessionwerte">
-                {observations.slice(0, 4).map((observation) => (
+              <div className="observation-list" aria-label="Alle Sessionwerte">
+                {observations.map((observation) => (
                   <article key={observation.id}>
                     <div className="observation-card-head">
                       <span>{formatDate(observation.observedAt)}</span>
@@ -2507,7 +2442,7 @@ export default function Home() {
                   </article>
                 ) : null}
               </div>
-            </section>
+            </details>
           </div>
 
           <aside className="forecast-controls" aria-label="Forecast Einstellungen">
@@ -2704,11 +2639,16 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="station-grid" aria-label="Messstellen">
-        {payload.stations.map((station) => (
-          <StationPanel key={station.id} station={station} />
-        ))}
-      </section>
+      <PlatformSetupSection
+        setupLogs={setupLogs}
+        setupForm={setupForm}
+        setupMessage={setupMessage}
+        setupSaving={setupSaving}
+        deletingSetupId={deletingSetupId}
+        onFormChange={setSetupForm}
+        onSubmit={submitSetupLog}
+        onDelete={deleteSetupLog}
+      />
 
       <section className="chart-section">
         <div className="section-heading">
@@ -2781,28 +2721,50 @@ function SpotInsightSection({
       </div>
 
       <div className="spot-insight-grid">
-        <InsightColumn title="Eher gut" tone="good" items={spotInsightSummary.good} />
-        <InsightColumn title="Eher kritisch" tone="bad" items={spotInsightSummary.bad} />
-        <article className="correlation-card">
-          <span>Nächster Lernschritt</span>
-          <strong>Puig + Krössbach Korrelation</strong>
-          <p>
-            Neue Sessionwerte speichern bereits Abfluss und Pegel von Krössbach,
-            Puig und Reichenau. Sobald genug Bewertungen da sind, vergleichen wir
-            Wellenqualität gegen einzelne Zuflüsse, Summe, Delta, Pegel und
-            Änderungsrate.
-          </p>
-          <dl>
-            <div>
-              <dt>Verknüpfte Einträge</dt>
-              <dd>{observationsWithUpstream}</dd>
-            </div>
-            <div>
-              <dt>Hypothese</dt>
-              <dd>Menge + Trend + KW/Kanal-Umschaltung</dd>
-            </div>
-          </dl>
-        </article>
+        <details className="spot-insight-disclosure good">
+          <summary>
+            <span>Eher gut</span>
+            <strong>{spotInsightSummary.good.length} Hinweise</strong>
+          </summary>
+          <InsightColumn title="Eher gut" tone="good" items={spotInsightSummary.good} />
+        </details>
+        <details className="spot-insight-disclosure bad">
+          <summary>
+            <span>Eher kritisch</span>
+            <strong>{spotInsightSummary.bad.length} Hinweise</strong>
+          </summary>
+          <InsightColumn
+            title="Eher kritisch"
+            tone="bad"
+            items={spotInsightSummary.bad}
+          />
+        </details>
+        <details className="spot-insight-disclosure">
+          <summary>
+            <span>Korrelation</span>
+            <strong>{observationsWithUpstream} Einträge</strong>
+          </summary>
+          <article className="correlation-card">
+            <span>Nächster Lernschritt</span>
+            <strong>Puig + Krössbach Korrelation</strong>
+            <p>
+              Neue Sessionwerte speichern bereits Abfluss und Pegel von Krössbach,
+              Puig und Reichenau. Sobald genug Bewertungen da sind, vergleichen wir
+              Wellenqualität gegen einzelne Zuflüsse, Summe, Delta, Pegel und
+              Änderungsrate.
+            </p>
+            <dl>
+              <div>
+                <dt>Verknüpfte Einträge</dt>
+                <dd>{observationsWithUpstream}</dd>
+              </div>
+              <div>
+                <dt>Hypothese</dt>
+                <dd>Menge + Trend + KW/Kanal-Umschaltung</dd>
+              </div>
+            </dl>
+          </article>
+        </details>
       </div>
     </section>
   );
@@ -2854,7 +2816,11 @@ function PlatformSetupSection({
   onDelete: (id: number) => void;
 }) {
   return (
-    <section className="setup-section">
+    <details className="dashboard-disclosure setup-section">
+      <summary>
+        <span>Setupwechselwerte</span>
+        <strong>{setupLogs.length} Einträge</strong>
+      </summary>
       <div className="section-heading setup-heading">
         <div>
           <p>Setupwechsel</p>
@@ -3100,7 +3066,7 @@ function PlatformSetupSection({
           </article>
         ) : null}
       </div>
-    </section>
+    </details>
   );
 }
 

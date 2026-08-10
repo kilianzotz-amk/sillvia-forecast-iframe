@@ -234,6 +234,73 @@ h3 {
   border-color: #ddb25f;
 }
 
+.dashboard-disclosure > summary,
+.spot-insight-disclosure > summary {
+  align-items: center;
+  background: #f8fafb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  list-style: none;
+  padding: 14px 16px;
+}
+
+.dashboard-disclosure > summary::-webkit-details-marker,
+.spot-insight-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.dashboard-disclosure > summary::after,
+.spot-insight-disclosure > summary::after {
+  color: var(--teal-dark);
+  content: "+";
+  font-size: 1.35rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.dashboard-disclosure[open] > summary,
+.spot-insight-disclosure[open] > summary {
+  margin-bottom: 16px;
+}
+
+.dashboard-disclosure[open] > summary::after,
+.spot-insight-disclosure[open] > summary::after {
+  content: "−";
+}
+
+.dashboard-disclosure > summary span,
+.spot-insight-disclosure > summary span {
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.dashboard-disclosure > summary strong,
+.spot-insight-disclosure > summary strong {
+  background: #eef4f5;
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 900;
+  margin-left: auto;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+
+.spot-insight-disclosure.good > summary {
+  background: #eef7f1;
+  border-color: #cddfce;
+}
+
+.spot-insight-disclosure.bad > summary {
+  background: #fff4e7;
+  border-color: #ead3b1;
+}
+
 .quality-heading {
   align-items: center;
 }
