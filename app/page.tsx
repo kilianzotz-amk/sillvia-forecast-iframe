@@ -2739,7 +2739,8 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Quelle: {payload.source}. Messstellen: 202283, 201574, 201624.
+        Version 43 · Autor: Kilian Zotz · Quelle: {payload.source}. Messstellen:
+        202283, 201574, 201624.
       </footer>
     </main>
   );
