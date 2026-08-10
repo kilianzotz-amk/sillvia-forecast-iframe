@@ -51,10 +51,12 @@ export async function GET(request: Request) {
       }
 
       const historical = await fetchWeatherHistorical(safeHours);
-      try {
-        await storeWeatherPoints(historical);
-      } catch {
-        // Direct GeoSphere history is still useful even if D1 is unavailable.
+      if (safeHours <= 24) {
+        try {
+          await storeWeatherPoints(historical);
+        } catch {
+          // Direct GeoSphere history is still useful even if D1 is unavailable.
+        }
       }
 
       return Response.json({
@@ -71,10 +73,12 @@ export async function GET(request: Request) {
     }
 
     const historical = await fetchWeatherHistorical(safeHours);
-    try {
-      await storeWeatherPoints(historical);
-    } catch {
-      // Direct GeoSphere history is still useful even if D1 is unavailable.
+    if (safeHours <= 24) {
+      try {
+        await storeWeatherPoints(historical);
+      } catch {
+        // Direct GeoSphere history is still useful even if D1 is unavailable.
+      }
     }
 
     return Response.json({
