@@ -565,6 +565,12 @@ function formatVolume(value: number | null) {
   return `${value >= 0 ? "+" : ""}${formatNumber(value, digits)}`;
 }
 
+function formatVolumeBalanceFlow(value: number | null) {
+  if (value === null) return "n/a";
+  const averageFlow = value / 3600;
+  return `${averageFlow >= 0 ? "+" : ""}${formatNumber(averageFlow, 2)}`;
+}
+
 function formatOptionalCm(value: number | null) {
   return value === null ? "-" : `${formatNumber(value, value % 1 === 0 ? 0 : 1)} cm`;
 }
@@ -3214,7 +3220,7 @@ function WaveQualityCard({
           <dd>{formatTime(quality.time)}</dd>
         </div>
         <div>
-          <dt>Delta</dt>
+          <dt>Delta (Zufluss zu Abfluss)</dt>
           <dd>
             {quality.delta >= 0 ? "+" : ""}
             {formatNumber(quality.delta, 2)} m³/s
@@ -3225,25 +3231,25 @@ function WaveQualityCard({
           <dd>{formatNumber(quality.upstream, 2)} m³/s</dd>
         </div>
         <div>
-          <dt>Tendenz</dt>
+          <dt>Tendenz (Zufluss)</dt>
           <dd>
             {quality.trend.label} · {formatSignedNumber(quality.trend.delta60, 2)} m³/s
           </dd>
         </div>
         <div>
-          <dt>Pegel</dt>
+          <dt>Pegel Reichenau</dt>
           <dd>{formatNumber(quality.level, 1)} cm</dd>
         </div>
         <div>
-          <dt>Bilanz 60 min</dt>
-          <dd>{formatVolume(quality.volumeBalance60)} m³</dd>
+          <dt>Ø Differenz 60 min</dt>
+          <dd>{formatVolumeBalanceFlow(quality.volumeBalance60)} m³/s</dd>
         </div>
         <div>
           <dt>Modell</dt>
           <dd>{quality.modelScore} %</dd>
         </div>
         <div>
-          <dt>Daten</dt>
+          <dt>Daten*Gewichtung</dt>
           <dd>
             {quality.data.score === null
               ? "n/a"
