@@ -186,7 +186,7 @@ h3 {
 .kpi-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   order: 9;
 }
 
@@ -1070,6 +1070,11 @@ h3 {
   stroke-width: 2.4;
 }
 
+.line.volume {
+  stroke: #2d8f68;
+  stroke-width: 2.4;
+}
+
 .line.trim {
   stroke: #6d5bd0;
   stroke-width: 2;
@@ -1099,6 +1104,38 @@ h3 {
 
 .delta-chart {
   min-height: 290px;
+}
+
+.volume-chart {
+  min-height: 330px;
+}
+
+.volume-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 4px;
+}
+
+.volume-summary div {
+  background: #edf6f2;
+  border: 1px solid #cdded5;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.volume-summary span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.volume-summary strong {
+  color: var(--ink);
+  font-size: 0.96rem;
 }
 
 .dot {
@@ -1208,6 +1245,10 @@ h3 {
 
 .chart-legend .delta::before {
   background: #4f5d75;
+}
+
+.chart-legend .volume::before {
+  background: #2d8f68;
 }
 
 .chart-legend .session::before {

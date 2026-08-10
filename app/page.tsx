@@ -164,6 +164,8 @@ type FlowSeriesKey =
 
 type DeltaSeriesKey = "delta";
 
+type VolumeSeriesKey = "volume60";
+
 type LevelSeriesKey = "kroessbach" | "puig" | "reichenau" | "range";
 
 const stationOrder = ["202283", "201574", "201624"];
@@ -511,6 +513,13 @@ function formatQuality(value: number) {
   return formatNumber(value, 1);
 }
 
+function formatVolume(value: number | null) {
+  if (value === null) return "n/a";
+  const absolute = Math.abs(value);
+  const digits = absolute >= 1000 ? 0 : 1;
+  return `${value >= 0 ? "+" : ""}${formatNumber(value, digits)}`;
+}
+
 function sortSurfObservations(observations: SurfObservation[]) {
   return [...observations].sort(
     (a, b) => b.observedAt - a.observedAt || b.id - a.id,
@@ -552,6 +561,7 @@ function waveQualityScore(
   surfMax: number,
   levelMin: number,
   levelMax: number,
+  balance60: number | null = null,
 ) {
   const sortedMin = Math.min(surfMin, surfMax);
   const sortedMax = Math.max(surfMin, surfMax);
@@ -571,8 +581,17 @@ function waveQualityScore(
         : level < sortedLevelMin
           ? clamp(78 - ((sortedLevelMin - level) / Math.max(1, sortedLevelMin)) * 25)
           : 100;
+  const volumeScore =
+    balance60 === null ? 70 : clamp(50 + balance60 / 72);
 
-  return Math.round(clamp(deltaScore * 0.56 + upstreamScore * 0.24 + levelScore * 0.2));
+  return Math.round(
+    clamp(
+      deltaScore * 0.48 +
+        upstreamScore * 0.22 +
+        levelScore * 0.18 +
+        volumeScore * 0.12,
+    ),
+  );
 }
 
 function observationScore(quality: number) {
@@ -858,6 +877,76 @@ function valueAt(
   }
 
   return last.value;
+}
+
+function integrateDeltaVolume(
+  points: { t: number; value: number | null }[],
+  start: number,
+  end: number,
+) {
+  if (end <= start) return null;
+  const valid = points
+    .filter((point): point is { t: number; value: number } => point.value !== null)
+    .sort((a, b) => a.t - b.t);
+
+  if (!valid.length) return null;
+
+  const samples = [
+    { t: start, value: valueAt(valid, start) },
+    ...valid.filter((point) => point.t > start && point.t < end),
+    { t: end, value: valueAt(valid, end) },
+  ]
+    .filter((point): point is { t: number; value: number } => point.value !== null)
+    .sort((a, b) => a.t - b.t);
+
+  if (samples.length < 2) return null;
+
+  return samples.slice(1).reduce((sum, point, index) => {
+    const previous = samples[index];
+    const seconds = (point.t - previous.t) / 1000;
+    return sum + ((previous.value + point.value) / 2) * seconds;
+  }, 0);
+}
+
+function rollingVolumeBalanceSeries(
+  points: { t: number; value: number | null }[],
+  windowMs = 60 * 60 * 1000,
+) {
+  return points
+    .filter((point): point is { t: number; value: number } => point.value !== null)
+    .sort((a, b) => a.t - b.t)
+    .map((point) => ({
+      t: point.t,
+      value: integrateDeltaVolume(points, point.t - windowMs, point.t),
+    }));
+}
+
+function volumeBalanceSummary(
+  points: { t: number; value: number | null }[],
+  referenceTime: number,
+) {
+  const balance30 = integrateDeltaVolume(
+    points,
+    referenceTime - 30 * 60 * 1000,
+    referenceTime,
+  );
+  const balance60 = integrateDeltaVolume(
+    points,
+    referenceTime - 60 * 60 * 1000,
+    referenceTime,
+  );
+  const balance120 = integrateDeltaVolume(
+    points,
+    referenceTime - 120 * 60 * 1000,
+    referenceTime,
+  );
+
+  return {
+    balance30,
+    balance60,
+    balance120,
+    rolling60: rollingVolumeBalanceSeries(points),
+  };
 }
 
 function expectedDeltaSeries(
@@ -1428,6 +1517,7 @@ export default function Home() {
     ).value ?? upstreamFlow;
   const expectedWaveDelta =
     valueAt(deltaLine, waveTime) ?? downstreamFlow - upstreamFlow;
+  const volumeBalance = volumeBalanceSummary(deltaLine, waveTime);
   const currentInflowTrend = inflowTrendAt(forecastHistory, waveTime);
   const waveInflowTrend = inflowTrendAt(
     forecastHistory,
@@ -1446,6 +1536,7 @@ export default function Home() {
     forecastSettings.surfMax,
     forecastSettings.levelMin,
     forecastSettings.levelMax,
+    volumeBalance.balance60,
   );
   const manualNow = recentManualSignal(observations, waveTime);
   const qualityNow = {
@@ -1454,6 +1545,7 @@ export default function Home() {
     upstream: upstreamAtWave,
     trend: waveInflowTrend,
     level: levelAtWave,
+    volumeBalance60: volumeBalance.balance60,
     modelScore: qualityNowModelScore,
     manual: manualNow,
     score: blendManualQuality(qualityNowModelScore, manualNow, waveTime),
@@ -1481,6 +1573,11 @@ export default function Home() {
         waveLagPuig,
       );
       const level = latestAt(forecastHistory, point.t, "reichenauLevel") ?? levelAtWave;
+      const candidateVolumeBalance60 = integrateDeltaVolume(
+        deltaLine,
+        point.t - 60 * 60 * 1000,
+        point.t,
+      );
       const modelScore = waveQualityScore(
         point.value,
         upstream,
@@ -1489,6 +1586,7 @@ export default function Home() {
         forecastSettings.surfMax,
         forecastSettings.levelMin,
         forecastSettings.levelMax,
+        candidateVolumeBalance60,
       );
       const manual = recentManualSignal(observations, point.t);
       return {
@@ -1497,6 +1595,7 @@ export default function Home() {
         upstream,
         trend,
         level,
+        volumeBalance60: candidateVolumeBalance60,
         modelScore,
         manual,
         score: blendManualQuality(modelScore, manual, point.t),
@@ -1755,6 +1854,16 @@ export default function Home() {
           value={currentInflowTrend.label}
           unit={`${formatSignedNumber(currentInflowTrend.delta60, 2)} m³/s / 60 min`}
         />
+        <Metric
+          label="Volumenbilanz 60 min"
+          value={formatVolume(volumeBalance.balance60)}
+          unit="m³"
+          tone={
+            Math.abs(volumeBalance.balance60 ?? 0) > Math.max(900, upstreamFlow * 180)
+              ? "watch"
+              : "normal"
+          }
+        />
       </section>
 
       <section className="quality-section">
@@ -1766,7 +1875,7 @@ export default function Home() {
           </div>
           <div className="quality-basis">
             <span>Modell</span>
-            <strong>Delta + Oberlieger + Pegel + Meister</strong>
+            <strong>Delta + Volumenbilanz + Oberlieger + Pegel + Meister</strong>
           </div>
         </div>
         <div className="quality-grid">
@@ -1852,6 +1961,14 @@ export default function Home() {
                   delta={deltaLine}
                   timeDomain={chartTimeDomain}
                   markerTime={waveTime}
+                />
+                <SurfVolumeBalanceChart
+                  balance={volumeBalance.rolling60}
+                  timeDomain={chartTimeDomain}
+                  markerTime={waveTime}
+                  balance30={volumeBalance.balance30}
+                  balance60={volumeBalance.balance60}
+                  balance120={volumeBalance.balance120}
                 />
                 <SurfLevelChart
                   history={forecastHistory}
@@ -2155,6 +2272,18 @@ export default function Home() {
                 </dd>
               </div>
               <div>
+                <dt>Bilanz 30 min</dt>
+                <dd>{formatVolume(volumeBalance.balance30)} m³</dd>
+              </div>
+              <div>
+                <dt>Bilanz 60 min</dt>
+                <dd>{formatVolume(volumeBalance.balance60)} m³</dd>
+              </div>
+              <div>
+                <dt>Bilanz 120 min</dt>
+                <dd>{formatVolume(volumeBalance.balance120)} m³</dd>
+              </div>
+              <div>
                 <dt>Reichenau-Äquivalent</dt>
                 <dd>{formatTime(reichenauEquivalentTime)}</dd>
               </div>
@@ -2378,6 +2507,7 @@ function WaveQualityCard({
     upstream: number;
     trend: InflowTrend;
     level: number | null;
+    volumeBalance60: number | null;
     score: number;
     modelScore: number;
     manual: ManualQualitySignal | null;
@@ -2420,6 +2550,10 @@ function WaveQualityCard({
         <div>
           <dt>Pegel</dt>
           <dd>{formatNumber(quality.level, 1)} cm</dd>
+        </div>
+        <div>
+          <dt>Bilanz 60 min</dt>
+          <dd>{formatVolume(quality.volumeBalance60)} m³</dd>
         </div>
         <div>
           <dt>Modell</dt>
@@ -3000,6 +3134,157 @@ function SurfDeltaChart({
           onClick={() => setVisible((current) => ({ ...current, delta: !current.delta }))}
         >
           Delta Welle
+        </LegendToggle>
+      </div>
+    </div>
+  );
+}
+
+function SurfVolumeBalanceChart({
+  balance,
+  timeDomain,
+  markerTime,
+  balance30,
+  balance60,
+  balance120,
+}: {
+  balance: { t: number; value: number | null }[];
+  timeDomain: TimeDomain;
+  markerTime: number;
+  balance30: number | null;
+  balance60: number | null;
+  balance120: number | null;
+}) {
+  const [visible, setVisible] = useState<Record<VolumeSeriesKey, boolean>>({
+    volume60: true,
+  });
+  const inTimeDomain = (point: { t: number }) =>
+    point.t >= timeDomain.min && point.t <= timeDomain.max;
+  const visibleBalance = balance.filter(inTimeDomain);
+  const values = visible.volume60
+    ? visibleBalance
+        .map((point) => point.value)
+        .filter((value): value is number => typeof value === "number")
+    : [];
+  const minT = timeDomain.min;
+  const maxT = timeDomain.max;
+  const maxAbs = Math.max(500, ...values.map((value) => Math.abs(value))) * 1.18;
+  const minValue = -maxAbs;
+  const maxValue = maxAbs;
+  const width = 820;
+  const height = 270;
+  const plot = { left: 72, top: 60, right: 24, bottom: 42 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const x = (t: number) =>
+    plot.left + ((t - minT) / Math.max(1, maxT - minT)) * plotWidth;
+  const y = (value: number) =>
+    plot.top +
+    plotHeight -
+    ((value - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
+  const yTicks = Array.from({ length: 5 }, (_, index) =>
+    Number((minValue + ((maxValue - minValue) / 4) * index).toFixed(0)),
+  );
+  const xTicks = timeAxisTicks(minT, maxT);
+  const gridTicks = timeGridTicks(minT, maxT);
+  const zeroY = y(0);
+  const markerX = x(markerTime);
+
+  return (
+    <div className="forecast-chart volume-chart">
+      <div className="volume-summary" aria-label="Volumenbilanz Übersicht">
+        <div>
+          <span>30 min</span>
+          <strong>{formatVolume(balance30)} m³</strong>
+        </div>
+        <div>
+          <span>60 min</span>
+          <strong>{formatVolume(balance60)} m³</strong>
+        </div>
+        <div>
+          <span>120 min</span>
+          <strong>{formatVolume(balance120)} m³</strong>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <title>Volumenbilanz aus Delta im Verhältnis zur Zeit</title>
+        <text className="chart-title" x={plot.left} y={18}>
+          Volumenbilanz
+        </text>
+        <text className="chart-subtitle" x={plot.left} y={34}>
+          Rollende 60 min aus Delta m³/s integriert
+        </text>
+        {gridTicks.map((tick) => (
+          <line
+            key={tick.t}
+            className={`time-grid-line ${tick.major ? "major" : "minor"}`}
+            x1={x(tick.t)}
+            x2={x(tick.t)}
+            y1={plot.top}
+            y2={plot.top + plotHeight}
+          />
+        ))}
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line
+              className="grid-line"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={y(tick)}
+              y2={y(tick)}
+            />
+            <text x={12} y={y(tick) + 4}>
+              {formatVolume(tick)}
+            </text>
+          </g>
+        ))}
+        <line
+          className="zero-line"
+          x1={plot.left}
+          x2={width - plot.right}
+          y1={zeroY}
+          y2={zeroY}
+        />
+        <text
+          className="zero-label"
+          x={width - plot.right - 8}
+          y={zeroY - 8}
+          textAnchor="end"
+        >
+          0 m³
+        </text>
+        {xTicks.map((tick) => (
+          <text key={tick} x={x(tick)} y={height - 12} textAnchor="middle">
+            {formatAxisTime(tick, maxT - minT)}
+          </text>
+        ))}
+        {markerX >= plot.left && markerX <= width - plot.right ? (
+          <g>
+            <line
+              className="marker-line"
+              x1={markerX}
+              x2={markerX}
+              y1={plot.top}
+              y2={plot.top + plotHeight}
+            />
+            <text className="marker-label" x={markerX + 7} y={plot.top + 12}>
+              Messpunkt
+            </text>
+          </g>
+        ) : null}
+        {visible.volume60 ? (
+          <path className="line volume" d={linePath(visibleBalance, x, y)} />
+        ) : null}
+      </svg>
+      <div className="chart-legend">
+        <LegendToggle
+          name="volume"
+          active={visible.volume60}
+          onClick={() =>
+            setVisible((current) => ({ ...current, volume60: !current.volume60 }))
+          }
+        >
+          Volumenbilanz 60 min
         </LegendToggle>
       </div>
     </div>
