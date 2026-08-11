@@ -2713,18 +2713,6 @@ export default function Home() {
                 }))
               }
             />
-            <div className="learned-window">
-              <span>Erfahrungsbereich</span>
-              <strong>
-                {formatNumber(experienceTargets.flowMin, 1)}-
-                {formatNumber(experienceTargets.flowMax, 1)} m³/s
-              </strong>
-              <small>
-                Pegel {formatNumber(experienceTargets.levelMin, 0)}-
-                {formatNumber(experienceTargets.levelMax, 0)} cm ·{" "}
-                {experienceTargets.basis}
-              </small>
-            </div>
             <dl className="arrival-list">
               <div>
                 <dt>Krössbach sichtbar</dt>
@@ -2845,7 +2833,7 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 57 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 58 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
@@ -3101,6 +3089,30 @@ function SpotInsightSection({
               {formatNumber(targets.levelMin, 0)}-
               {formatNumber(targets.levelMax, 0)} cm
             </strong>
+            <div className="target-range-grid">
+              <div>
+                <span>Abfluss</span>
+                <strong>
+                  {formatNumber(targets.flowMin, 1)}-
+                  {formatNumber(targets.flowMax, 1)} m³/s
+                </strong>
+              </div>
+              <div>
+                <span>Pegel</span>
+                <strong>
+                  {formatNumber(targets.levelMin, 0)}-
+                  {formatNumber(targets.levelMax, 0)} cm
+                </strong>
+              </div>
+              <div>
+                <span>Basis</span>
+                <strong>{targets.basis}</strong>
+              </div>
+              <div>
+                <span>Neues Setup</span>
+                <strong>{targets.sameSetupCount} Werte</strong>
+              </div>
+            </div>
             <p>
               Dieser Bereich wird automatisch aus Wellenmeisterwerten ab 4,0/5
               konstruiert. Das aktuelle Setup wird bevorzugt, sobald mindestens

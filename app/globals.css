@@ -1164,6 +1164,33 @@ h3 {
   background: #f8fafb;
 }
 
+.target-range-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.target-range-grid div {
+  background: #eef6f7;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.target-range-grid span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.target-range-grid strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
 .correlation-card dl {
   display: grid;
   gap: 8px;
@@ -1297,7 +1324,6 @@ h3 {
 .forecast-status span,
 .runtime-control span,
 .surf-window span,
-.learned-window span,
 .arrival-list dt {
   color: var(--muted);
   font-size: 0.78rem;
@@ -1897,25 +1923,6 @@ h3 {
   min-width: 0;
   padding: 0 10px;
   width: 100%;
-}
-
-.learned-window {
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  display: grid;
-  gap: 5px;
-  padding: 11px;
-}
-
-.learned-window strong {
-  color: var(--ink);
-  font-size: 1rem;
-}
-
-.learned-window small {
-  color: var(--muted);
-  font-weight: 750;
 }
 
 .arrival-list {
