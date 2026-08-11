@@ -592,10 +592,6 @@ function zoomTimeDomain(domain: TimeDomain, zoom: TimeZoom) {
   };
 }
 
-function formatUnit(unit: string) {
-  return unit.replace("m3/s", "m³/s");
-}
-
 function formatTrimCm(value: number | null, fallback: string) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return `${formatNumber(value, value % 1 === 0 ? 0 : 1)} cm`;
@@ -632,18 +628,6 @@ function formatTriple(
     puig,
     digits,
   )} / ${formatNumber(reichenau, digits)}`;
-}
-
-function tendencyLabel(tendency?: number) {
-  if (tendency === undefined) return "stabil";
-  if (tendency > 0) return "steigend";
-  if (tendency < 0) return "fallend";
-  return "stabil";
-}
-
-function pct(value: number | null, target: number | null) {
-  if (value === null || target === null || target <= 0) return 0;
-  return Math.min(100, Math.max(0, (value / target) * 100));
 }
 
 function clamp(value: number, min = 0, max = 100) {
@@ -1142,14 +1126,6 @@ function blendDataQuality(
   if (signal.score === null || signal.confidence <= 0) return modelScore;
   const weight = Math.min(0.28, signal.confidence / 100 * 0.28);
   return Math.round(clamp(modelScore * (1 - weight) + signal.score * weight));
-}
-
-function statusTone(station: HydroStation) {
-  const classification = station.water.classification?.toLowerCase() ?? "";
-  if (classification.includes("hw30")) return "danger";
-  if (classification.includes("hw") || classification.includes(">mw")) return "watch";
-  if (classification.includes("niedrig")) return "low";
-  return "normal";
 }
 
 function valueOrNull(value?: number | null) {
@@ -2151,7 +2127,6 @@ export default function Home() {
   const upstreamFlow =
     (kr?.discharge.value ?? 0) + (puig?.discharge.value ?? 0);
   const downstreamFlow = reichenau?.discharge.value ?? 0;
-  const ratio = upstreamFlow > 0 ? (downstreamFlow / upstreamFlow) * 100 : 0;
   const mostRecent = payload.stations
     .map((station) => station.water.dt)
     .filter((value): value is number => typeof value === "number")
@@ -2215,7 +2190,6 @@ export default function Home() {
   const visibleWeatherForecast = (weatherPayload.forecast ?? []).filter(
     (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
   );
-  const currentInflowTrend = inflowTrendAt(forecastHistory, waveTime);
   const waveInflowTrend = inflowTrendAt(
     forecastHistory,
     waveTime,
@@ -2326,11 +2300,6 @@ export default function Home() {
       (point, index, points) =>
         index === 0 || Math.abs(point.time - points[index - 1].time) > 60 * 1000,
     );
-  const observationsWithUpstream = observations.filter(
-    (observation) =>
-      observation.kroessbachDischarge !== null ||
-      observation.puigDischarge !== null,
-  ).length;
   const runtimeComparison = runtimeComparisonSummary(
     forecastHistory,
     forecastSettings,
@@ -2531,6 +2500,7 @@ export default function Home() {
       <section className="top-band">
         <div>
           <div className="brand-lockup">
+            {/* eslint-disable-next-line @next/next/no-img-element -- small static worker asset */}
             <img src="/surfinn-logo.png" alt="SurfInn" />
             <h1>
               <span>SILLVIA</span>
@@ -2570,7 +2540,6 @@ export default function Home() {
       <SpotInsightSection
         stats={insightStats}
         targets={experienceTargets}
-        observationsWithUpstream={observationsWithUpstream}
       />
 
       <section className="forecast-section">
@@ -2799,7 +2768,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 60 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 61 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
@@ -3020,11 +2989,9 @@ function ObservationSection({
 function SpotInsightSection({
   stats,
   targets,
-  observationsWithUpstream,
 }: {
   stats: SpotInsightStats;
   targets: ExperienceTargets;
-  observationsWithUpstream: number;
 }) {
   const hasLearnedTargets = targets.sampleSize > 0;
 
@@ -3483,27 +3450,6 @@ function PlatformSetupSection({
   );
 }
 
-function Metric({
-  label,
-  value,
-  unit,
-  tone = "normal",
-}: {
-  label: string;
-  value: string;
-  unit: string;
-  tone?: "normal" | "watch";
-}) {
-  return (
-    <article className={`metric ${tone}`}>
-      <span>{label}</span>
-      <strong>
-        {value} <small>{unit}</small>
-      </strong>
-    </article>
-  );
-}
-
 function WaveQualityScale({
   projections,
 }: {
@@ -3684,25 +3630,6 @@ function RuntimeCorrelationPanel({
         </div>
       </dl>
     </section>
-  );
-}
-
-function FlowNode({
-  station,
-  accent,
-}: {
-  station?: HydroStation;
-  accent: "teal" | "gold" | "coral";
-}) {
-  return (
-    <article className={`flow-node ${accent}`}>
-      <span>{station?.river ?? "n/a"}</span>
-      <strong>{station?.shortName ?? "n/a"}</strong>
-      <p>
-        {formatNumber(station?.discharge.value ?? null, 2)}{" "}
-        {formatUnit(station?.discharge.unit ?? "m³/s")}
-      </p>
-    </article>
   );
 }
 
@@ -4967,75 +4894,5 @@ function RuntimeControl({
         onChange={(event) => onChange(Number(event.target.value))}
       />
     </label>
-  );
-}
-
-function StationPanel({ station }: { station: HydroStation }) {
-  const waterPct = pct(station.water.value, station.thresholds.hw1.value);
-  const hw30Pct = pct(station.water.value, station.thresholds.hw30.value);
-  const tone = statusTone(station);
-
-  return (
-    <article className={`station-panel ${tone}`}>
-      <header>
-        <div>
-          <span>{station.river}</span>
-          <h3>{station.name}</h3>
-        </div>
-        <b>{station.water.classification ?? "ohne Klasse"}</b>
-      </header>
-
-      <dl className="reading-grid">
-        <div>
-          <dt>Pegel</dt>
-          <dd>
-            {formatNumber(station.water.value, 1)}{" "}
-            <small>{formatUnit(station.water.unit)}</small>
-          </dd>
-        </div>
-        <div>
-          <dt>Abfluss</dt>
-          <dd>
-            {formatNumber(station.discharge.value, 2)}{" "}
-            <small>{formatUnit(station.discharge.unit)}</small>
-          </dd>
-        </div>
-        <div>
-          <dt>Tendenz</dt>
-          <dd>{tendencyLabel(station.water.tendency)}</dd>
-        </div>
-        <div>
-          <dt>Messzeit</dt>
-          <dd>{formatDate(station.water.dt)}</dd>
-        </div>
-      </dl>
-
-      <div className="thresholds">
-        <div>
-          <span>HW1</span>
-          <strong>
-            {formatNumber(station.thresholds.hw1.value, 0)}{" "}
-            {formatUnit(station.thresholds.hw1.unit)}
-          </strong>
-        </div>
-        <div className="track">
-          <i style={{ width: `${waterPct}%` }} />
-        </div>
-        <div>
-          <span>HW30</span>
-          <strong>
-            {formatNumber(station.thresholds.hw30.value, 0)}{" "}
-            {formatUnit(station.thresholds.hw30.unit)}
-          </strong>
-        </div>
-        <div className="track subtle">
-          <i style={{ width: `${hw30Pct}%` }} />
-        </div>
-      </div>
-
-      <p className="station-meta">
-        {station.role} · {station.altitude ? `${station.altitude} m` : "Hoehe n/a"}
-      </p>
-    </article>
   );
 }
