@@ -2768,7 +2768,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 61 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.62.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>

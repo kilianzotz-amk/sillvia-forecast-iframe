@@ -28,4 +28,5 @@ The Sites project uses the logical D1 binding `DB`. Migrations live in
 ## Notes
 
 The public dashboard version is shown in the page footer together with the
-author attribution.
+author attribution. The displayed format is `0.<Sites version>.<YYMMDD>`, for
+example `0.62.260811`.
