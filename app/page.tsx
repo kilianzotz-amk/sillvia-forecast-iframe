@@ -2605,6 +2605,73 @@ export default function Home() {
               }}
             />
             <div
+              className="runtime-inline-controls"
+              aria-label="Forecast Laufzeiten"
+              onPointerDown={(event) => event.stopPropagation()}
+              onWheel={(event) => event.stopPropagation()}
+              onTouchStart={(event) => event.stopPropagation()}
+              onTouchMove={(event) => event.stopPropagation()}
+            >
+              <div className="runtime-inline-head">
+                <div>
+                  <span>Laufzeiten</span>
+                  <strong>Forecast feinjustieren</strong>
+                </div>
+                <dl className="arrival-list compact">
+                  <div>
+                    <dt>Krössbach sichtbar</dt>
+                    <dd>{formatTime(forecastArrivalKroessbach)}</dd>
+                  </div>
+                  <div>
+                    <dt>Puig sichtbar</dt>
+                    <dd>{formatTime(forecastArrivalPuig)}</dd>
+                  </div>
+                </dl>
+              </div>
+              <div className="runtime-inline-grid">
+                <RuntimeControl
+                  label="Krössbach → Reichenau"
+                  hint="Laufzeit, bis die Hochwasserwelle aus Krössbach in Reichenau ankommt."
+                  beta
+                  value={forecastSettings.lagKroessbach}
+                  min={60}
+                  max={180}
+                  onChange={(lagKroessbach) =>
+                    setForecastSettings((settings) => ({
+                      ...settings,
+                      lagKroessbach,
+                    }))
+                  }
+                />
+                <RuntimeControl
+                  label="Puig → Reichenau"
+                  hint="Laufzeit, bis die Hochwasserwelle aus Puig in Reichenau ankommt."
+                  beta
+                  value={forecastSettings.lagPuig}
+                  min={45}
+                  max={150}
+                  onChange={(lagPuig) =>
+                    setForecastSettings((settings) => ({
+                      ...settings,
+                      lagPuig,
+                    }))
+                  }
+                />
+                <RuntimeControl
+                  label="Welle → Reichenau"
+                  value={forecastSettings.waveOffset}
+                  min={0}
+                  max={30}
+                  onChange={(waveOffset) =>
+                    setForecastSettings((settings) => ({
+                      ...settings,
+                      waveOffset,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <div
               className={`chart-navigator ${timeDrag ? "dragging" : ""}`}
               ref={chartNavigatorRef}
               onMouseEnter={() => setChartHover(true)}
@@ -2671,59 +2738,6 @@ export default function Home() {
             </div>
 
           </div>
-
-          <aside className="forecast-controls" aria-label="Forecast Einstellungen">
-            <RuntimeControl
-              label="Krössbach → Reichenau"
-              hint="Laufzeit, bis die Hochwasserwelle aus Krössbach in Reichenau ankommt."
-              beta
-              value={forecastSettings.lagKroessbach}
-              min={60}
-              max={180}
-              onChange={(lagKroessbach) =>
-                setForecastSettings((settings) => ({
-                  ...settings,
-                  lagKroessbach,
-                }))
-              }
-            />
-            <RuntimeControl
-              label="Puig → Reichenau"
-              hint="Laufzeit, bis die Hochwasserwelle aus Puig in Reichenau ankommt."
-              beta
-              value={forecastSettings.lagPuig}
-              min={45}
-              max={150}
-              onChange={(lagPuig) =>
-                setForecastSettings((settings) => ({
-                  ...settings,
-                  lagPuig,
-                }))
-              }
-            />
-            <RuntimeControl
-              label="Welle → Reichenau"
-              value={forecastSettings.waveOffset}
-              min={0}
-              max={30}
-              onChange={(waveOffset) =>
-                setForecastSettings((settings) => ({
-                  ...settings,
-                  waveOffset,
-                }))
-              }
-            />
-            <dl className="arrival-list">
-              <div>
-                <dt>Krössbach sichtbar</dt>
-                <dd>{formatTime(forecastArrivalKroessbach)}</dd>
-              </div>
-              <div>
-                <dt>Puig sichtbar</dt>
-                <dd>{formatTime(forecastArrivalPuig)}</dd>
-              </div>
-            </dl>
-          </aside>
         </div>
 
         <p className="runtime-note">
@@ -2833,7 +2847,7 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 58 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 59 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>

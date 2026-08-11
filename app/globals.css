@@ -1338,7 +1338,7 @@ h3 {
   align-items: stretch;
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .forecast-main {
@@ -1805,12 +1805,43 @@ h3 {
   background: #6d5bd0;
 }
 
-.forecast-controls {
+.runtime-inline-controls {
+  background: #f8fafb;
   border: 1px solid var(--line);
   border-radius: 8px;
   display: grid;
-  gap: 16px;
+  gap: 14px;
   padding: 16px;
+}
+
+.runtime-inline-head {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.runtime-inline-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.runtime-inline-head span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.runtime-inline-head strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+
+.runtime-inline-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .review-presets {
@@ -1929,6 +1960,12 @@ h3 {
   display: grid;
   gap: 10px;
   margin: 0;
+}
+
+.arrival-list.compact {
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: min(360px, 100%);
 }
 
 .arrival-list div {
@@ -2283,6 +2320,16 @@ h3 {
   .runtime-correlation dl,
   .archive-grid,
   .station-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-inline-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .runtime-inline-grid,
+  .arrival-list.compact {
     grid-template-columns: 1fr;
   }
 
