@@ -331,6 +331,8 @@ const defaultTimeZoom: TimeZoom = {
   detail: 0,
   position: 100,
 };
+const chartHorizontalWheelSensitivity = 0.035;
+const chartHorizontalDragSensitivity = 0.45;
 const defaultWeatherPayload: WeatherPayload = {
   fetchedAt: new Date().toISOString(),
   source: "GeoSphere Austria",
@@ -2448,7 +2450,11 @@ export default function Home() {
       if (horizontalScroll && interaction.canMoveTimeAxis) {
         setTimeZoom((current) => ({
           ...current,
-          position: clamp(current.position + deltaX * 0.08, 0, 100),
+          position: clamp(
+            current.position + deltaX * chartHorizontalWheelSensitivity,
+            0,
+            100,
+          ),
         }));
         return;
       }
@@ -2532,7 +2538,9 @@ export default function Home() {
         event.stopPropagation();
         const width = Math.max(1, node.clientWidth);
         const deltaPercent =
-          ((touchGesture.startX - touch.clientX) / width) * 100;
+          ((touchGesture.startX - touch.clientX) / width) *
+          100 *
+          chartHorizontalDragSensitivity;
 
         setTimeZoom((current) => ({
           ...current,
@@ -2581,7 +2589,8 @@ export default function Home() {
     if (event.pointerType === "touch") return;
     if (!timeDrag) return;
     const width = Math.max(1, event.currentTarget.clientWidth);
-    const deltaPercent = ((timeDrag.x - event.clientX) / width) * 100;
+    const deltaPercent =
+      ((timeDrag.x - event.clientX) / width) * 100 * chartHorizontalDragSensitivity;
 
     if (!canMoveTimeAxis) {
       setTimeZoom((current) => ({
@@ -2884,7 +2893,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.65.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.66.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
