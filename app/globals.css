@@ -199,8 +199,7 @@ h3 {
 .rain-section,
 .flow-section,
 .forecast-section,
-.archive-section,
-.chart-section {
+.archive-section {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -336,10 +335,6 @@ h3 {
 
 .station-grid {
   order: 7;
-}
-
-.chart-section {
-  order: 8;
 }
 
 .quality-basis {
@@ -562,8 +557,7 @@ h3 {
 .setup-section,
 .rain-section,
 .forecast-section,
-.archive-section,
-.chart-section {
+.archive-section {
   padding: 20px;
 }
 
@@ -2240,59 +2234,6 @@ h3 {
   margin-bottom: 0;
 }
 
-.toolbar {
-  align-items: center;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  margin-bottom: 14px;
-}
-
-.segmented {
-  background: #e6ecee;
-  border-radius: 8px;
-  display: inline-grid;
-  gap: 2px;
-  grid-auto-flow: column;
-  padding: 3px;
-}
-
-.segmented button {
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  color: var(--ink);
-  cursor: pointer;
-  font-size: 0.86rem;
-  font-weight: 750;
-  min-height: 36px;
-  min-width: 86px;
-  padding: 0 12px;
-}
-
-.segmented button.active {
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(16, 38, 44, 0.12);
-}
-
-.chart-frame {
-  background: #f8fafb;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  display: grid;
-  min-height: 360px;
-  overflow: hidden;
-  place-items: center;
-}
-
-.chart-frame img {
-  display: block;
-  height: auto;
-  max-height: 620px;
-  max-width: 100%;
-  width: min(100%, 900px);
-}
-
 .source-line {
   color: var(--muted);
   font-size: 0.82rem;
@@ -2337,15 +2278,6 @@ h3 {
     width: 100%;
   }
 
-  .toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .segmented {
-    grid-auto-flow: row;
-  }
-
   .setup-note-field {
     grid-column: auto;
   }
@@ -2374,7 +2306,6 @@ h3 {
   .flow-section,
   .forecast-section,
   .archive-section,
-  .chart-section,
   .station-panel {
     padding: 16px;
   }

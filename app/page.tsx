@@ -1744,8 +1744,6 @@ export default function Home() {
   const [payload, setPayload] = useState<HydroPayload>(fallbackPayload);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selectedStation, setSelectedStation] = useState("202283");
-  const [chartType, setChartType] = useState<"W" | "Q">("W");
   const [nowMs] = useState(() => Date.now());
   const [history, setHistory] = useState<HistoryPoint[]>(() => readStoredHistory());
   const [weatherPayload, setWeatherPayload] =
@@ -2154,7 +2152,6 @@ export default function Home() {
     (kr?.discharge.value ?? 0) + (puig?.discharge.value ?? 0);
   const downstreamFlow = reichenau?.discharge.value ?? 0;
   const ratio = upstreamFlow > 0 ? (downstreamFlow / upstreamFlow) * 100 : 0;
-  const selected = stationsById[selectedStation] ?? payload.stations[0];
   const mostRecent = payload.stations
     .map((station) => station.water.dt)
     .filter((value): value is number => typeof value === "number")
@@ -2801,53 +2798,8 @@ export default function Home() {
         onDelete={deleteSetupLog}
       />
 
-      <section className="chart-section">
-        <div className="section-heading">
-          <p>Offizielle Ganglinien</p>
-          <h2>{selected?.name ?? "Messstelle"}</h2>
-        </div>
-        <div className="toolbar">
-          <div className="segmented" aria-label="Messstelle auswählen">
-            {payload.stations.map((station) => (
-              <button
-                key={station.id}
-                type="button"
-                className={station.id === selectedStation ? "active" : ""}
-                onClick={() => setSelectedStation(station.id)}
-              >
-                {station.shortName}
-              </button>
-            ))}
-          </div>
-          <div className="segmented" aria-label="Diagrammtyp auswählen">
-            <button
-              type="button"
-              className={chartType === "W" ? "active" : ""}
-              onClick={() => setChartType("W")}
-            >
-              Pegel
-            </button>
-            <button
-              type="button"
-              className={chartType === "Q" ? "active" : ""}
-              onClick={() => setChartType("Q")}
-            >
-              Abfluss
-            </button>
-          </div>
-        </div>
-        <div className="chart-frame">
-          {selected ? (
-            <img
-              src={`/api/hydro/plot?station=${selected.id}&type=${chartType}`}
-              alt={`${chartType === "W" ? "Pegel" : "Abfluss"} ${selected.name}`}
-            />
-          ) : null}
-        </div>
-      </section>
-
       <footer className="source-line">
-        Version 59 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 60 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
