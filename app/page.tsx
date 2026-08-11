@@ -2202,7 +2202,6 @@ export default function Home() {
     0,
     forecastSettings.lagPuig - forecastSettings.waveOffset,
   );
-  const reichenauEquivalentTime = waveTime + forecastSettings.waveOffset * 60 * 1000;
   const upstreamAtWave =
     shiftedUpstreamAt(
       forecastHistory,
@@ -2735,37 +2734,6 @@ export default function Home() {
                 <dt>Puig sichtbar</dt>
                 <dd>{formatTime(forecastArrivalPuig)}</dd>
               </div>
-              <div>
-                <dt>Delta Welle</dt>
-                <dd>
-                  {expectedWaveDelta >= 0 ? "+" : ""}
-                  {formatNumber(expectedWaveDelta, 2)} m³/s
-                </dd>
-              </div>
-              <div>
-                <dt>Bilanz 30 min</dt>
-                <dd>{formatVolume(volumeBalance.balance30)} m³</dd>
-              </div>
-              <div>
-                <dt>Bilanz 60 min</dt>
-                <dd>{formatVolume(volumeBalance.balance60)} m³</dd>
-              </div>
-              <div>
-                <dt>Bilanz 120 min</dt>
-                <dd>{formatVolume(volumeBalance.balance120)} m³</dd>
-              </div>
-              <div>
-                <dt>Reichenau-Äquivalent</dt>
-                <dd>{formatTime(reichenauEquivalentTime)}</dd>
-              </div>
-              <div>
-                <dt>Basis</dt>
-                <dd>
-                  {payload.historySource === "database"
-                    ? "Datenbank + 15-min Ping"
-                    : "15-min Live-Snapshots"}
-                </dd>
-              </div>
             </dl>
           </aside>
         </div>
@@ -2877,7 +2845,7 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 56 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 57 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
