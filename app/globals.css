@@ -667,8 +667,7 @@ h3 {
   padding: 10px 12px;
 }
 
-.rain-source span,
-.rain-summary-card span {
+.rain-source span {
   color: var(--muted);
   font-size: 0.74rem;
   font-weight: 850;
@@ -681,37 +680,6 @@ h3 {
 
 .rain-notice {
   margin: 0;
-}
-
-.rain-summary-grid {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-}
-
-.rain-summary-card {
-  background: #eef6f7;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  display: grid;
-  gap: 5px;
-  padding: 12px;
-}
-
-.rain-summary-card.forecast {
-  background: #fff8ea;
-  border-color: #ead3b1;
-}
-
-.rain-summary-card strong {
-  color: var(--ink);
-  font-size: 1.25rem;
-}
-
-.rain-summary-card small {
-  color: var(--muted);
-  font-size: 0.72rem;
-  font-weight: 800;
 }
 
 .rain-note {

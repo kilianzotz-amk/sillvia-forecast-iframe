@@ -1237,58 +1237,6 @@ function compactWeatherHistory(points: WeatherPoint[], maxPoints = 50000) {
     .slice(-maxPoints);
 }
 
-function rainfallTotals(
-  points: WeatherPoint[],
-  referenceTime: number,
-  windowMs: number,
-) {
-  const from = referenceTime - windowMs;
-  const totals = new Map<string, number>();
-
-  for (const point of points) {
-    if (point.rainMm === null || point.t < from || point.t > referenceTime) continue;
-    totals.set(point.stationId, (totals.get(point.stationId) ?? 0) + point.rainMm);
-  }
-
-  const values = [...totals.values()];
-  const areaMean = values.length
-    ? values.reduce((sum, value) => sum + value, 0) / values.length
-    : 0;
-  const maxStation = values.length ? Math.max(...values) : 0;
-
-  return {
-    areaMean,
-    maxStation,
-    stationCount: values.length,
-  };
-}
-
-function rainfallFutureTotals(
-  points: WeatherPoint[],
-  referenceTime: number,
-  windowMs: number,
-) {
-  const until = referenceTime + windowMs;
-  const totals = new Map<string, number>();
-
-  for (const point of points) {
-    if (point.rainMm === null || point.t <= referenceTime || point.t > until) continue;
-    totals.set(point.stationId, (totals.get(point.stationId) ?? 0) + point.rainMm);
-  }
-
-  const values = [...totals.values()];
-  const areaMean = values.length
-    ? values.reduce((sum, value) => sum + value, 0) / values.length
-    : 0;
-  const maxStation = values.length ? Math.max(...values) : 0;
-
-  return {
-    areaMean,
-    maxStation,
-    stationCount: values.length,
-  };
-}
-
 function aggregateRainSeries(points: WeatherPoint[]) {
   const byTime = new Map<number, number[]>();
 
@@ -2264,25 +2212,6 @@ export default function Home() {
   const visibleWeatherForecast = (weatherPayload.forecast ?? []).filter(
     (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
   );
-  const rain1h = rainfallTotals(weatherPayload.history, waveTime, 60 * 60 * 1000);
-  const rain3h = rainfallTotals(weatherPayload.history, waveTime, 3 * 60 * 60 * 1000);
-  const rain6h = rainfallTotals(weatherPayload.history, waveTime, 6 * 60 * 60 * 1000);
-  const rain12h = rainfallTotals(weatherPayload.history, waveTime, 12 * 60 * 60 * 1000);
-  const rainNext1h = rainfallFutureTotals(
-    weatherPayload.forecast ?? [],
-    waveTime,
-    60 * 60 * 1000,
-  );
-  const rainNext3h = rainfallFutureTotals(
-    weatherPayload.forecast ?? [],
-    waveTime,
-    3 * 60 * 60 * 1000,
-  );
-  const rainNext6h = rainfallFutureTotals(
-    weatherPayload.forecast ?? [],
-    waveTime,
-    6 * 60 * 60 * 1000,
-  );
   const currentInflowTrend = inflowTrendAt(forecastHistory, waveTime);
   const waveInflowTrend = inflowTrendAt(
     forecastHistory,
@@ -2710,13 +2639,6 @@ export default function Home() {
                   visibleForecast={visibleWeatherForecast}
                   timeDomain={chartTimeDomain}
                   markerTime={lastMeasurementTime}
-                  rain1h={rain1h}
-                  rain3h={rain3h}
-                  rain6h={rain6h}
-                  rain12h={rain12h}
-                  rainNext1h={rainNext1h}
-                  rainNext3h={rainNext3h}
-                  rainNext6h={rainNext6h}
                   error={weatherError}
                 />
                 <SurfLevelChart
@@ -3111,7 +3033,7 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 53 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 54 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
@@ -4457,13 +4379,6 @@ function RainfallSection({
   visibleForecast,
   timeDomain,
   markerTime,
-  rain1h,
-  rain3h,
-  rain6h,
-  rain12h,
-  rainNext1h,
-  rainNext3h,
-  rainNext6h,
   error,
 }: {
   weather: WeatherPayload;
@@ -4471,13 +4386,6 @@ function RainfallSection({
   visibleForecast: WeatherPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
-  rain1h: ReturnType<typeof rainfallTotals>;
-  rain3h: ReturnType<typeof rainfallTotals>;
-  rain6h: ReturnType<typeof rainfallTotals>;
-  rain12h: ReturnType<typeof rainfallTotals>;
-  rainNext1h: ReturnType<typeof rainfallFutureTotals>;
-  rainNext3h: ReturnType<typeof rainfallFutureTotals>;
-  rainNext6h: ReturnType<typeof rainfallFutureTotals>;
   error: string;
 }) {
   return (
@@ -4495,15 +4403,6 @@ function RainfallSection({
         </div>
       </div>
       {error ? <div className="notice rain-notice">{error}</div> : null}
-      <div className="rain-summary-grid">
-        <RainSummaryCard label="Letzte 1 h" total={rain1h} />
-        <RainSummaryCard label="Letzte 3 h" total={rain3h} />
-        <RainSummaryCard label="Letzte 6 h" total={rain6h} />
-        <RainSummaryCard label="Letzte 12 h" total={rain12h} />
-        <RainSummaryCard label="Nächste 1 h" total={rainNext1h} forecast />
-        <RainSummaryCard label="Nächste 3 h" total={rainNext3h} forecast />
-        <RainSummaryCard label="Nächste 6 h" total={rainNext6h} forecast />
-      </div>
       <RainfallChart
         stations={weather.stations}
         points={visiblePoints}
@@ -4517,29 +4416,6 @@ function RainfallSection({
         Wellenqualität gewichtet. Die gestrichelte Linie ist der GeoSphere-Nowcast.
       </p>
     </section>
-  );
-}
-
-function RainSummaryCard({
-  label,
-  total,
-  forecast = false,
-}: {
-  label: string;
-  total: ReturnType<typeof rainfallTotals>;
-  forecast?: boolean;
-}) {
-  return (
-    <article className={`rain-summary-card ${forecast ? "forecast" : ""}`}>
-      <span>
-        {label}
-        {forecast ? " · Forecast" : ""}
-      </span>
-      <strong>{formatNumber(total.areaMean, 1)} mm</strong>
-      <small>
-        Max Station {formatNumber(total.maxStation, 1)} mm · {total.stationCount} Stationen
-      </small>
-    </article>
   );
 }
 
