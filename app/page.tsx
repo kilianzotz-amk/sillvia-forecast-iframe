@@ -112,6 +112,13 @@ type SurfObservation = {
   createdBy: string | null;
 };
 
+type ObservationFormState = {
+  observedAt: string;
+  trimCm: string;
+  quality: number;
+  note: string;
+};
+
 type PlatformSetupLog = {
   id: number;
   loggedAt: number;
@@ -263,7 +270,7 @@ type DeltaSeriesKey = "delta";
 
 type VolumeSeriesKey = "volume60";
 
-type LevelSeriesKey = "kroessbach" | "puig" | "reichenau" | "range";
+type LevelSeriesKey = "kroessbach" | "puig" | "reichenau" | "session" | "range";
 
 type RainSeriesKey =
   | "area"
@@ -1760,7 +1767,7 @@ export default function Home() {
     timeZoom: defaultTimeZoom,
   });
   const [observations, setObservations] = useState<SurfObservation[]>([]);
-  const [observationForm, setObservationForm] = useState(() => ({
+  const [observationForm, setObservationForm] = useState<ObservationFormState>(() => ({
     observedAt: formatDateTimeInput(Date.now()),
     trimCm: "",
     quality: 3.0,
@@ -2620,18 +2627,31 @@ export default function Home() {
                   surfMax={Math.max(experienceTargets.flowMin, experienceTargets.flowMax)}
                   observations={observations}
                 />
+                <SurfLevelChart
+                  history={forecastHistory}
+                  timeDomain={chartTimeDomain}
+                  markerTime={lastMeasurementTime}
+                  levelMin={Math.min(experienceTargets.levelMin, experienceTargets.levelMax)}
+                  levelMax={Math.max(experienceTargets.levelMin, experienceTargets.levelMax)}
+                  observations={observations}
+                />
                 <SurfDeltaChart
                   delta={deltaLine}
                   timeDomain={chartTimeDomain}
                   markerTime={waveTime}
                 />
-                <SurfVolumeBalanceChart
-                  balance={volumeBalance.rolling60}
-                  timeDomain={chartTimeDomain}
-                  markerTime={waveTime}
-                  balance30={volumeBalance.balance30}
-                  balance60={volumeBalance.balance60}
-                  balance120={volumeBalance.balance120}
+                <ObservationSection
+                  observations={observations}
+                  observationForm={observationForm}
+                  setObservationForm={setObservationForm}
+                  submitObservation={submitObservation}
+                  observationSaving={observationSaving}
+                  editingObservationId={editingObservationId}
+                  cancelObservationEdit={cancelObservationEdit}
+                  observationMessage={observationMessage}
+                  editObservation={editObservation}
+                  deleteObservation={deleteObservation}
+                  deletingObservationId={deletingObservationId}
                 />
                 <RainfallSection
                   weather={weatherPayload}
@@ -2641,192 +2661,17 @@ export default function Home() {
                   markerTime={lastMeasurementTime}
                   error={weatherError}
                 />
-                <SurfLevelChart
-                  history={forecastHistory}
+                <SurfVolumeBalanceChart
+                  balance={volumeBalance.rolling60}
                   timeDomain={chartTimeDomain}
-                  markerTime={lastMeasurementTime}
-                  levelMin={Math.min(experienceTargets.levelMin, experienceTargets.levelMax)}
-                  levelMax={Math.max(experienceTargets.levelMin, experienceTargets.levelMax)}
+                  markerTime={waveTime}
+                  balance30={volumeBalance.balance30}
+                  balance60={volumeBalance.balance60}
+                  balance120={volumeBalance.balance120}
                 />
               </div>
             </div>
 
-            <section className="observation-section">
-              <div className="section-heading observation-heading">
-                <div>
-                  <p>Wellenmeister</p>
-                  <h2>Sessionwerte eintragen</h2>
-                </div>
-                <div className="observation-count">
-                  <span>72 h Einträge</span>
-                  <strong>{observations.length}</strong>
-                </div>
-              </div>
-
-              <form className="observation-form" onSubmit={submitObservation}>
-                <label>
-                  <span>Zeitpunkt</span>
-                  <input
-                    type="datetime-local"
-                    required
-                    value={observationForm.observedAt}
-                    onChange={(event) =>
-                      setObservationForm((current) => ({
-                        ...current,
-                        observedAt: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  <span>Trim cm</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    required
-                    value={observationForm.trimCm}
-                    onChange={(event) =>
-                      setObservationForm((current) => ({
-                        ...current,
-                        trimCm: event.target.value,
-                      }))
-                    }
-                    placeholder="niedriger = stärker"
-                  />
-                </label>
-                <fieldset>
-                  <legend>Welle</legend>
-                  <div className="rating-slider">
-                    <strong>{formatQuality(observationForm.quality)}</strong>
-                    <input
-                      type="range"
-                      min="1"
-                      max="5"
-                      step="0.1"
-                      value={observationForm.quality}
-                      aria-label="Wellenqualität von 1,0 bis 5,0"
-                      onChange={(event) =>
-                        setObservationForm((current) => ({
-                          ...current,
-                          quality: Number(event.target.value),
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="rating-scale">
-                    <span>1,0 schlecht</span>
-                    <span>5,0 gut</span>
-                  </div>
-                </fieldset>
-                <label>
-                  <span>Notiz</span>
-                  <input
-                    type="text"
-                    value={observationForm.note}
-                    onChange={(event) =>
-                      setObservationForm((current) => ({
-                        ...current,
-                        note: event.target.value,
-                      }))
-                    }
-                    placeholder="optional"
-                  />
-                </label>
-                <button type="submit" disabled={observationSaving}>
-                  {observationSaving
-                    ? "Speichert"
-                    : editingObservationId === null
-                      ? "Speichern"
-                      : "Aktualisieren"}
-                </button>
-                {editingObservationId !== null ? (
-                  <button
-                    type="button"
-                    className="secondary-action"
-                    onClick={cancelObservationEdit}
-                    disabled={observationSaving}
-                  >
-                    Abbrechen
-                  </button>
-                ) : null}
-              </form>
-
-              {observationMessage ? (
-                <p className="observation-message">{observationMessage}</p>
-              ) : null}
-
-              <details className="dashboard-disclosure observation-values-disclosure">
-                <summary>
-                  <span>Gespeicherte Wellenmeisterwerte</span>
-                  <strong>{observations.length} Einträge</strong>
-                </summary>
-                <div className="observation-list" aria-label="Alle Sessionwerte">
-                  {observations.map((observation) => (
-                    <article key={observation.id}>
-                      <div className="observation-card-head">
-                        <span>{formatDate(observation.observedAt)}</span>
-                        <div className="observation-card-actions">
-                          <button
-                            type="button"
-                            className="edit"
-                            onClick={() => editObservation(observation)}
-                            disabled={observationSaving}
-                          >
-                            Bearbeiten
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void deleteObservation(observation.id)}
-                            disabled={deletingObservationId === observation.id}
-                          >
-                            Löschen
-                          </button>
-                        </div>
-                      </div>
-                      <strong className={`quality-chip ${ratingClass(observation.quality)}`}>
-                        {formatQuality(observation.quality)}/5
-                      </strong>
-                      <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
-                      <dl>
-                        <div>
-                          <dt>Abfluss K/P/R</dt>
-                          <dd>
-                            {formatTriple(
-                              observation.kroessbachDischarge,
-                              observation.puigDischarge,
-                              observation.reichenauDischarge,
-                              2,
-                            )}{" "}
-                            m³/s
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>Pegel K/P/R</dt>
-                          <dd>
-                            {formatTriple(
-                              observation.kroessbachLevel,
-                              observation.puigLevel,
-                              observation.reichenauLevel,
-                              1,
-                            )}{" "}
-                            cm
-                          </dd>
-                        </div>
-                      </dl>
-                      {observation.note ? <small>{observation.note}</small> : null}
-                    </article>
-                  ))}
-                  {!observations.length ? (
-                    <article>
-                      <span>Noch keine Einträge</span>
-                      <strong>n/a</strong>
-                      <p>Die nächsten Sessionwerte erscheinen hier.</p>
-                    </article>
-                  ) : null}
-                </div>
-              </details>
-            </section>
           </div>
 
           <aside className="forecast-controls" aria-label="Forecast Einstellungen">
@@ -3033,10 +2878,221 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 54 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 55 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
+  );
+}
+
+function ObservationSection({
+  observations,
+  observationForm,
+  setObservationForm,
+  submitObservation,
+  observationSaving,
+  editingObservationId,
+  cancelObservationEdit,
+  observationMessage,
+  editObservation,
+  deleteObservation,
+  deletingObservationId,
+}: {
+  observations: SurfObservation[];
+  observationForm: ObservationFormState;
+  setObservationForm: Dispatch<SetStateAction<ObservationFormState>>;
+  submitObservation: (event: FormEvent<HTMLFormElement>) => void;
+  observationSaving: boolean;
+  editingObservationId: number | null;
+  cancelObservationEdit: () => void;
+  observationMessage: string;
+  editObservation: (observation: SurfObservation) => void;
+  deleteObservation: (id: number) => Promise<void>;
+  deletingObservationId: number | null;
+}) {
+  return (
+    <section
+      className="observation-section"
+      onPointerDown={(event) => event.stopPropagation()}
+      onWheel={(event) => event.stopPropagation()}
+      onTouchStart={(event) => event.stopPropagation()}
+      onTouchMove={(event) => event.stopPropagation()}
+    >
+      <div className="section-heading observation-heading">
+        <div>
+          <p>Wellenmeister</p>
+          <h2>Sessionwerte eintragen</h2>
+        </div>
+        <div className="observation-count">
+          <span>72 h Einträge</span>
+          <strong>{observations.length}</strong>
+        </div>
+      </div>
+
+      <form className="observation-form" onSubmit={submitObservation}>
+        <label>
+          <span>Zeitpunkt</span>
+          <input
+            type="datetime-local"
+            required
+            value={observationForm.observedAt}
+            onChange={(event) =>
+              setObservationForm((current) => ({
+                ...current,
+                observedAt: event.target.value,
+              }))
+            }
+          />
+        </label>
+        <label>
+          <span>Trim cm</span>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            required
+            value={observationForm.trimCm}
+            onChange={(event) =>
+              setObservationForm((current) => ({
+                ...current,
+                trimCm: event.target.value,
+              }))
+            }
+            placeholder="niedriger = stärker"
+          />
+        </label>
+        <fieldset>
+          <legend>Welle</legend>
+          <div className="rating-slider">
+            <strong>{formatQuality(observationForm.quality)}</strong>
+            <input
+              type="range"
+              min="1"
+              max="5"
+              step="0.1"
+              value={observationForm.quality}
+              aria-label="Wellenqualität von 1,0 bis 5,0"
+              onChange={(event) =>
+                setObservationForm((current) => ({
+                  ...current,
+                  quality: Number(event.target.value),
+                }))
+              }
+            />
+          </div>
+          <div className="rating-scale">
+            <span>1,0 schlecht</span>
+            <span>5,0 gut</span>
+          </div>
+        </fieldset>
+        <label>
+          <span>Notiz</span>
+          <input
+            type="text"
+            value={observationForm.note}
+            onChange={(event) =>
+              setObservationForm((current) => ({
+                ...current,
+                note: event.target.value,
+              }))
+            }
+            placeholder="optional"
+          />
+        </label>
+        <button type="submit" disabled={observationSaving}>
+          {observationSaving
+            ? "Speichert"
+            : editingObservationId === null
+              ? "Speichern"
+              : "Aktualisieren"}
+        </button>
+        {editingObservationId !== null ? (
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={cancelObservationEdit}
+            disabled={observationSaving}
+          >
+            Abbrechen
+          </button>
+        ) : null}
+      </form>
+
+      {observationMessage ? (
+        <p className="observation-message">{observationMessage}</p>
+      ) : null}
+
+      <details className="dashboard-disclosure observation-values-disclosure">
+        <summary>
+          <span>Gespeicherte Wellenmeisterwerte</span>
+          <strong>{observations.length} Einträge</strong>
+        </summary>
+        <div className="observation-list" aria-label="Alle Sessionwerte">
+          {observations.map((observation) => (
+            <article key={observation.id}>
+              <div className="observation-card-head">
+                <span>{formatDate(observation.observedAt)}</span>
+                <div className="observation-card-actions">
+                  <button
+                    type="button"
+                    className="edit"
+                    onClick={() => editObservation(observation)}
+                    disabled={observationSaving}
+                  >
+                    Bearbeiten
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteObservation(observation.id)}
+                    disabled={deletingObservationId === observation.id}
+                  >
+                    Löschen
+                  </button>
+                </div>
+              </div>
+              <strong className={`quality-chip ${ratingClass(observation.quality)}`}>
+                {formatQuality(observation.quality)}/5
+              </strong>
+              <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
+              <dl>
+                <div>
+                  <dt>Abfluss K/P/R</dt>
+                  <dd>
+                    {formatTriple(
+                      observation.kroessbachDischarge,
+                      observation.puigDischarge,
+                      observation.reichenauDischarge,
+                      2,
+                    )}{" "}
+                    m³/s
+                  </dd>
+                </div>
+                <div>
+                  <dt>Pegel K/P/R</dt>
+                  <dd>
+                    {formatTriple(
+                      observation.kroessbachLevel,
+                      observation.puigLevel,
+                      observation.reichenauLevel,
+                      1,
+                    )}{" "}
+                    cm
+                  </dd>
+                </div>
+              </dl>
+              {observation.note ? <small>{observation.note}</small> : null}
+            </article>
+          ))}
+          {!observations.length ? (
+            <article>
+              <span>Noch keine Einträge</span>
+              <strong>n/a</strong>
+              <p>Die nächsten Sessionwerte erscheinen hier.</p>
+            </article>
+          ) : null}
+        </div>
+      </details>
+    </section>
   );
 }
 
@@ -4594,17 +4650,20 @@ function SurfLevelChart({
   markerTime,
   levelMin,
   levelMax,
+  observations,
 }: {
   history: HistoryPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
   levelMin: number;
   levelMax: number;
+  observations: SurfObservation[];
 }) {
   const [visible, setVisible] = useState<Record<LevelSeriesKey, boolean>>({
     kroessbach: true,
     puig: true,
     reichenau: true,
+    session: true,
     range: true,
   });
   const toggle = (key: LevelSeriesKey) =>
@@ -4626,10 +4685,26 @@ function SurfLevelChart({
   const visibleKroessbachLevel = kroessbachLevel.filter(inTimeDomain);
   const visiblePuigLevel = puigLevel.filter(inTimeDomain);
   const visibleReichenauLevel = reichenauLevel.filter(inTimeDomain);
+  const visibleSessionPoints = observations
+    .map((observation) => ({
+      id: observation.id,
+      t: observation.observedAt,
+      value: observation.reichenauLevel,
+      quality: observation.quality,
+      trimCm: observation.trimCm,
+      kroessbachDischarge: observation.kroessbachDischarge,
+      puigDischarge: observation.puigDischarge,
+      reichenauDischarge: observation.reichenauDischarge,
+      kroessbachLevel: observation.kroessbachLevel,
+      puigLevel: observation.puigLevel,
+      reichenauLevel: observation.reichenauLevel,
+    }))
+    .filter(inTimeDomain);
   const series = [
     ...(visible.kroessbach ? visibleKroessbachLevel : []),
     ...(visible.puig ? visiblePuigLevel : []),
     ...(visible.reichenau ? visibleReichenauLevel : []),
+    ...(visible.session ? visibleSessionPoints : []),
   ];
   const allValues = series
     .map((point) => point.value)
@@ -4738,6 +4813,42 @@ function SurfLevelChart({
             d={linePath(visibleReichenauLevel, x, y)}
           />
         ) : null}
+        {visible.session ? visibleSessionPoints.map((point) =>
+          point.value === null ? null : (
+            <g key={point.id}>
+              <title>
+                {`Session ${formatTime(point.t)} · Qualität ${formatQuality(point.quality)}/5 · Trim ${formatTrimCm(
+                  point.trimCm,
+                  "",
+                )} · Pegel K/P/R ${formatTriple(
+                  point.kroessbachLevel,
+                  point.puigLevel,
+                  point.reichenauLevel,
+                  1,
+                )} cm · Abfluss K/P/R ${formatTriple(
+                  point.kroessbachDischarge,
+                  point.puigDischarge,
+                  point.reichenauDischarge,
+                  2,
+                )} m³/s`}
+              </title>
+              <circle
+                className={`session-dot ${ratingClass(point.quality)}`}
+                cx={x(point.t)}
+                cy={y(point.value)}
+                r="4"
+              />
+              <text
+                className="session-label"
+                x={x(point.t)}
+                y={y(point.value) - 7}
+                textAnchor="middle"
+              >
+                {formatQuality(point.quality)}
+              </text>
+            </g>
+          ),
+        ) : null}
       </svg>
       <div className="chart-legend">
         <LegendToggle name="kroessbach" active={visible.kroessbach} onClick={() => toggle("kroessbach")}>
@@ -4748,6 +4859,9 @@ function SurfLevelChart({
         </LegendToggle>
         <LegendToggle name="reichenau" active={visible.reichenau} onClick={() => toggle("reichenau")}>
           Reichenau Pegel
+        </LegendToggle>
+        <LegendToggle name="session" active={visible.session} onClick={() => toggle("session")}>
+          Sessionwerte
         </LegendToggle>
         <LegendToggle name="level-range" active={visible.range} onClick={() => toggle("range")}>
           Pegel-Erfahrungsbereich
