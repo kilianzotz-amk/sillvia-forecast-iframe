@@ -46,11 +46,20 @@ export type HydroPayload = {
   historySource?: "database" | "local";
 };
 
+export type HydroWaterBackfillPoint = {
+  stationId: string;
+  shortName: string;
+  measuredAt: number;
+  waterValue: number;
+  waterUnit: string;
+};
+
 export const stationOrder = ["202283", "201574", "201624"];
 export const sampleInterval = 15 * 60 * 1000;
 
 const DATA_URL =
   "https://hydro.tirol.gv.at/stationdata/data.json?parameter=Wasserstand";
+const OGD_W_URL = "https://hydro.tirol.gv.at/ogd/OGD_W.csv";
 
 const targets = [
   {
@@ -170,6 +179,63 @@ export function compactHistory(points: HistoryPoint[], maxPoints = 5000) {
   }
 
   return compacted.slice(-maxPoints);
+}
+
+function parseCsvNumber(value: string) {
+  const parsed = Number(value.replace(",", ".").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseOgdTimestamp(value: string) {
+  const parsed = Date.parse(value.trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseHydroWaterBackfillCsv(csv: string) {
+  const points: HydroWaterBackfillPoint[] = [];
+  const targetsById = new Map(targets.map((target) => [target.id, target]));
+
+  for (const line of csv.split(/\r?\n/)) {
+    if (!line || line.startsWith("Stationsname;")) continue;
+    const columns = line.split(";");
+    const stationId = columns[1]?.trim();
+    const parameter = columns[3]?.trim();
+    const target = stationId ? targetsById.get(stationId) : undefined;
+    if (!target || parameter !== "W") continue;
+
+    const measuredAt = parseOgdTimestamp(columns[4] ?? "");
+    const waterValue = parseCsvNumber(columns[5] ?? "");
+    if (measuredAt === null || waterValue === null) continue;
+
+    points.push({
+      stationId,
+      shortName: target.shortName,
+      measuredAt,
+      waterValue,
+      waterUnit: columns[6]?.trim() || "cm",
+    });
+  }
+
+  return points.sort((a, b) => a.measuredAt - b.measuredAt);
+}
+
+export async function fetchHydroWaterBackfill(hours = 24) {
+  const safeHours = Math.min(24, Math.max(1, Math.round(hours)));
+  const since = Date.now() - safeHours * 60 * 60 * 1000;
+  const response = await fetch(OGD_W_URL, {
+    cache: "no-store",
+    headers: {
+      accept: "text/csv,text/plain,*/*",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Hydro Tirol Pegel-Backfill konnte nicht geladen werden");
+  }
+
+  return parseHydroWaterBackfillCsv(await response.text()).filter(
+    (point) => point.measuredAt >= since,
+  );
 }
 
 export async function fetchHydroPayload(): Promise<HydroPayload> {

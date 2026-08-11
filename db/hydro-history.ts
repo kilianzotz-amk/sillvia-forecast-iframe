@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import {
   compactHistory,
   type HistoryPoint,
+  type HydroWaterBackfillPoint,
   type HydroPayload,
   stationOrder,
   timeFromStations,
@@ -12,6 +13,12 @@ type MeasurementRow = {
   measured_at: number;
   water_value: number | null;
   discharge_value: number | null;
+};
+
+type RatingSampleRow = {
+  station_id: string;
+  water_value: number;
+  discharge_value: number;
 };
 
 export type HydroArchiveRow = {
@@ -136,6 +143,84 @@ export async function getRecentHydroHistory(hours = 72) {
   }
 
   return compactHistory([...pointsByTime.values()]);
+}
+
+export async function getHydroRatingSamples(days = 14) {
+  const db = getD1();
+  const safeDays = Math.min(90, Math.max(1, Math.round(days)));
+  const since = Date.now() - safeDays * 24 * 60 * 60 * 1000;
+  const result = await db
+    .prepare(
+      `SELECT station_id, water_value, discharge_value
+       FROM hydro_measurements
+       WHERE measured_at >= ?
+         AND water_value IS NOT NULL
+         AND discharge_value IS NOT NULL
+       ORDER BY measured_at ASC`,
+    )
+    .bind(since)
+    .all<RatingSampleRow>();
+
+  return result.results ?? [];
+}
+
+export async function storeHydroBackfillPoints(
+  points: Array<
+    HydroWaterBackfillPoint & {
+      dischargeValue: number | null;
+      dischargeUnit: string | null;
+    }
+  >,
+) {
+  const db = getD1();
+  const collectedAt = Date.now();
+  let writes = 0;
+  const statements = points.map((point) =>
+    db
+      .prepare(
+        `INSERT INTO hydro_measurements (
+          station_id,
+          short_name,
+          measured_at,
+          collected_at,
+          water_value,
+          water_unit,
+          water_classification,
+          water_tendency,
+          discharge_value,
+          discharge_unit
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(station_id, measured_at) DO UPDATE SET
+          collected_at = excluded.collected_at,
+          water_value = COALESCE(hydro_measurements.water_value, excluded.water_value),
+          water_unit = COALESCE(hydro_measurements.water_unit, excluded.water_unit),
+          discharge_value = COALESCE(hydro_measurements.discharge_value, excluded.discharge_value),
+          discharge_unit = COALESCE(hydro_measurements.discharge_unit, excluded.discharge_unit)`,
+      )
+      .bind(
+        point.stationId,
+        point.shortName,
+        point.measuredAt,
+        collectedAt,
+        point.waterValue,
+        point.waterUnit,
+        null,
+        null,
+        point.dischargeValue,
+        point.dischargeUnit,
+      ),
+  );
+
+  const chunkSize = 200;
+  for (let index = 0; index < statements.length; index += chunkSize) {
+    const results = await db.batch(statements.slice(index, index + chunkSize));
+    writes += results.reduce(
+      (sum, result) => sum + (result.meta.changes ?? 0),
+      0,
+    );
+  }
+
+  return { collectedAt, writes };
 }
 
 export async function getHydroArchiveRows(days = 7) {
