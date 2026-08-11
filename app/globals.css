@@ -1287,8 +1287,9 @@ h3 {
 .chart-navigator {
   cursor: grab;
   min-width: 0;
-  touch-action: none;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y;
   user-select: none;
 }
 
@@ -2190,6 +2191,11 @@ h3 {
 
   .chart-time-control .date-range {
     grid-template-columns: 1fr;
+  }
+
+  .chart-navigator {
+    margin-inline: -10px;
+    padding-inline: 18px;
   }
 
   .runtime-correlation-head {

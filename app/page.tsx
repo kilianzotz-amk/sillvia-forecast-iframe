@@ -655,6 +655,20 @@ function isInteractiveTarget(target: EventTarget | null) {
   );
 }
 
+function isChartInteractionTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest(".forecast-chart"));
+}
+
+function isInChartSideGutter(node: HTMLElement, clientX: number) {
+  const rect = node.getBoundingClientRect();
+  const gutter = clamp(rect.width * 0.08, 18, 36);
+  return clientX - rect.left < gutter || rect.right - clientX < gutter;
+}
+
+function touchCenterX(touches: TouchList) {
+  return Array.from(touches).reduce((sum, touch) => sum + touch.clientX, 0) / touches.length;
+}
+
 function ratingClass(quality: number) {
   const rounded = Math.round(clamp(quality, 1, 5));
   return `rating-${rounded}`;
@@ -2383,6 +2397,9 @@ export default function Home() {
 
   useEffect(() => {
     if (!chartHover) return undefined;
+    if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      return undefined;
+    }
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
@@ -2399,7 +2416,9 @@ export default function Home() {
       | {
           mode: "pan";
           startX: number;
+          startY: number;
           startPosition: number;
+          active: boolean;
         }
       | {
           mode: "pinch";
@@ -2417,6 +2436,7 @@ export default function Home() {
     const handleNativeWheel = (event: WheelEvent) => {
       const interaction = chartInteractionRef.current;
       if (isInteractiveTarget(event.target)) return;
+      if (!isChartInteractionTarget(event.target)) return;
       if (!interaction.hasZoomableTimeAxis) return;
 
       event.preventDefault();
@@ -2442,9 +2462,11 @@ export default function Home() {
     const handleTouchStart = (event: TouchEvent) => {
       const interaction = chartInteractionRef.current;
       if (isInteractiveTarget(event.target)) return;
+      if (!isChartInteractionTarget(event.target)) return;
       if (!interaction.hasZoomableTimeAxis) return;
 
       if (event.touches.length >= 2) {
+        if (isInChartSideGutter(node, touchCenterX(event.touches))) return;
         event.preventDefault();
         touchGesture = {
           mode: "pinch",
@@ -2455,10 +2477,14 @@ export default function Home() {
       }
 
       if (event.touches.length === 1 && interaction.canMoveTimeAxis) {
+        const touch = event.touches[0];
+        if (isInChartSideGutter(node, touch.clientX)) return;
         touchGesture = {
           mode: "pan",
-          startX: event.touches[0].clientX,
+          startX: touch.clientX,
+          startY: touch.clientY,
           startPosition: interaction.timeZoom.position,
+          active: false,
         };
       }
     };
@@ -2480,11 +2506,33 @@ export default function Home() {
 
       if (event.touches.length === 1 && touchGesture.mode === "pan") {
         if (!interaction.canMoveTimeAxis) return;
+        const touch = event.touches[0];
+        const dx = touch.clientX - touchGesture.startX;
+        const dy = touch.clientY - touchGesture.startY;
+
+        if (!touchGesture.active) {
+          const clearHorizontalIntent =
+            Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2;
+          const clearVerticalIntent = Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx);
+
+          if (clearVerticalIntent) {
+            touchGesture = null;
+            return;
+          }
+
+          if (!clearHorizontalIntent) return;
+
+          touchGesture = {
+            ...touchGesture,
+            active: true,
+          };
+        }
+
         event.preventDefault();
         event.stopPropagation();
         const width = Math.max(1, node.clientWidth);
         const deltaPercent =
-          ((touchGesture.startX - event.touches[0].clientX) / width) * 100;
+          ((touchGesture.startX - touch.clientX) / width) * 100;
 
         setTimeZoom((current) => ({
           ...current,
@@ -2515,6 +2563,7 @@ export default function Home() {
   const handleChartPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "touch") return;
     if (isInteractiveTarget(event.target)) return;
+    if (!isChartInteractionTarget(event.target)) return;
     if (!hasZoomableTimeAxis) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const startedFromOverview = !canMoveTimeAxis;
@@ -2835,7 +2884,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.64.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.65.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
