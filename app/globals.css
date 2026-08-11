@@ -1855,13 +1855,6 @@ h3 {
   margin: 3px 0 0;
 }
 
-.runtime-note {
-  color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.45;
-  margin: 12px 0 0;
-}
-
 .runtime-correlation {
   background: #f8fafb;
   border: 1px solid var(--line);
@@ -1934,6 +1927,43 @@ h3 {
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.35;
+}
+
+.runtime-reference-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.runtime-reference-grid article {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+}
+
+.runtime-reference-grid span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.runtime-reference-grid strong {
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.runtime-reference-grid small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.runtime-reference-note {
+  background: #eef5f3 !important;
 }
 
 .runtime-correlation dl {
@@ -2029,6 +2059,7 @@ h3 {
   .setup-log-list dl,
   .forecast-layout,
   .runtime-correlation-grid,
+  .runtime-reference-grid,
   .runtime-correlation dl,
   .archive-grid {
     grid-template-columns: 1fr;

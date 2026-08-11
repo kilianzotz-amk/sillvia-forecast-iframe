@@ -396,7 +396,7 @@ const fallbackPayload: HydroPayload = {
       role: "Zufluss aus dem Stubaital",
       altitude: 1086,
       waveRuntime:
-        "Laufzeit der Hochwasserwelle bis zum Pegel Reichenau: 1,25-2,5 Stunden; Fließstrecke 29,9 km",
+        "Laufzeit der Hochwasserwelle bis zum Pegel Reichenau: 1,25-2,5 Stunden; Beschleunigung aufgrund seitlicher Zuflüsse möglich!; Fließstrecke 29,9 km",
       latlng: [47.080286341504, 11.266120553361],
       water: {
         value: 107.1,
@@ -424,7 +424,7 @@ const fallbackPayload: HydroPayload = {
       role: "Oberlieger an der Sill",
       altitude: 1005,
       waveRuntime:
-        "Laufzeit der Hochwasserwelle bis zum Pegel Reichenau: 1-2 Stunden; Fließstrecke 24,3 km",
+        "Laufzeit der Hochwasserwelle bis zum Pegel Reichenau: 1-2 Stunden; Beschleunigung aufgrund seitlicher Zuflüsse möglich!; Fließstrecke 24,3 km",
       latlng: [47.1130710390252, 11.4523841611937],
       water: {
         value: 101.5,
@@ -2706,11 +2706,12 @@ export default function Home() {
           </div>
         </div>
 
-        <p className="runtime-note">
-          {kr?.waveRuntime ?? "Krössbach Laufzeit n/a"} ·{" "}
-          {puig?.waveRuntime ?? "Puig Laufzeit n/a"}
-        </p>
-        <RuntimeCorrelationPanel summary={runtimeComparison} />
+        <RuntimeCorrelationPanel
+          summary={runtimeComparison}
+          kroessbachRuntime={kr?.waveRuntime}
+          puigRuntime={puig?.waveRuntime}
+          settings={forecastSettings}
+        />
       </section>
 
       <section className="archive-section">
@@ -2768,7 +2769,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.62.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.63.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
@@ -3574,9 +3575,18 @@ function WaveQualityCard({
 
 function RuntimeCorrelationPanel({
   summary,
+  kroessbachRuntime,
+  puigRuntime,
+  settings,
 }: {
   summary: RuntimeComparisonSummary;
+  kroessbachRuntime?: string | null;
+  puigRuntime?: string | null;
+  settings: ForecastSettings;
 }) {
+  const kroessbachWaveMinutes = Math.max(0, settings.lagKroessbach - settings.waveOffset);
+  const puigWaveMinutes = Math.max(0, settings.lagPuig - settings.waveOffset);
+
   return (
     <section className="runtime-correlation">
       <div className="runtime-correlation-head">
@@ -3613,6 +3623,34 @@ function RuntimeCorrelationPanel({
               : "n/a"}
           </strong>
           <small>erwartet aus Laufzeit → tatsächlich Reichenau.</small>
+        </article>
+      </div>
+      <div className="runtime-reference-grid">
+        <article>
+          <span>Offiziell Krössbach → Reichenau</span>
+          <strong>{kroessbachRuntime ?? "n/a"}</strong>
+          <small>
+            Regler aktuell {settings.lagKroessbach} min bis Reichenau; an der Welle
+            ca. {kroessbachWaveMinutes} min vorher sichtbar.
+          </small>
+        </article>
+        <article>
+          <span>Offiziell Puig → Reichenau</span>
+          <strong>{puigRuntime ?? "n/a"}</strong>
+          <small>
+            Regler aktuell {settings.lagPuig} min bis Reichenau; an der Welle ca.{" "}
+            {puigWaveMinutes} min vorher sichtbar.
+          </small>
+        </article>
+        <article className="runtime-reference-note">
+          <span>Einordnung</span>
+          <strong>Die aktuellen Regler liegen im offiziellen Laufzeitbereich.</strong>
+          <small>
+            Das ist fuer den Forecast plausibel: Krössbach 75-150 min und Puig
+            60-120 min bis Reichenau. Weil die Welle ca. 10 min vor dem Pegel liegt,
+            wird die Wirkung an der Welle entsprechend frueher angesetzt. Kraftwerke
+            und seitliche Zuflüsse koennen die reale Reaktion trotzdem verschieben.
+          </small>
         </article>
       </div>
       <dl>
