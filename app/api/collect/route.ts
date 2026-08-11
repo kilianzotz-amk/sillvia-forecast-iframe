@@ -1,5 +1,5 @@
-import { getRecentHydroHistory, storeHydroPayload } from "@/db/hydro-history";
-import { getRecentWeatherHistory, storeWeatherPoints } from "@/db/weather-history";
+import { storeHydroPayload } from "@/db/hydro-history";
+import { storeWeatherPoints } from "@/db/weather-history";
 import { fetchHydroPayload } from "@/lib/hydro";
 import { fetchWeatherCurrent } from "@/lib/weather";
 
@@ -16,7 +16,6 @@ async function collect() {
 
     try {
       const stored = await storeHydroPayload(payload);
-      const history = await getRecentHydroHistory();
       try {
         const weatherPoints = await fetchWeatherCurrent();
         const weatherStored = await storeWeatherPoints(weatherPoints);
@@ -31,37 +30,33 @@ async function collect() {
             error instanceof Error ? error.message : "Regen speichern fehlgeschlagen",
         };
       }
-      let weatherHistory = [];
-      try {
-        weatherHistory = await getRecentWeatherHistory();
-      } catch {
-        weatherHistory = [];
-      }
 
       return Response.json({
-        ...payload,
-        history,
-        weather: {
-          history: weatherHistory,
-          historySource: "database",
-        },
-        historySource: "database",
-        collector: {
-          ok: true,
-          collectedAt: new Date(stored.collectedAt).toISOString(),
-          writes: stored.writes,
-          weather: weatherCollector,
-        },
+        ok: true,
+        collectedAt: new Date(stored.collectedAt).toISOString(),
+        source: payload.source,
+        hydroWrites: stored.writes,
+        weather: weatherCollector,
+        stations: payload.stations.map((station) => ({
+          id: station.id,
+          shortName: station.shortName,
+          measuredAt: new Date(
+            station.discharge.dt ?? station.water.dt ?? stored.collectedAt,
+          ).toISOString(),
+          waterCm: station.water.value,
+          dischargeCms: station.discharge.value,
+        })),
       });
     } catch (error) {
-      return Response.json({
-        ...payload,
-        collector: {
+      return Response.json(
+        {
           ok: false,
           error:
             error instanceof Error ? error.message : "Speichern fehlgeschlagen",
+          source: payload.source,
         },
-      });
+        { status: 500 },
+      );
     }
   } catch (error) {
     return Response.json(
