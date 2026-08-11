@@ -119,6 +119,20 @@ type ObservationFormState = {
   note: string;
 };
 
+type PlatformSetupFormState = {
+  loggedAt: string;
+  waveMaster: string;
+  chainLeftCm: string;
+  chainRightCm: string;
+  rampPosition: string;
+  trimHeightCm: string;
+  tensionLeft: string;
+  tensionRight: string;
+  waterLevelCm: string;
+  dischargeCms: string;
+  note: string;
+};
+
 type PlatformSetupLog = {
   id: number;
   loggedAt: number;
@@ -676,7 +690,7 @@ function formatBooleanFlag(value: boolean | null) {
   return value ? "Ja" : "Nein";
 }
 
-function emptySetupForm(loggedAt = formatDateTimeInput(platformSetupChangeAt)) {
+function emptySetupForm(loggedAt = formatDateTimeInput(platformSetupChangeAt)): PlatformSetupFormState {
   return {
     loggedAt,
     waveMaster: "",
@@ -692,7 +706,7 @@ function emptySetupForm(loggedAt = formatDateTimeInput(platformSetupChangeAt)) {
   };
 }
 
-function setupFormFromLog(log: PlatformSetupLog) {
+function setupFormFromLog(log: PlatformSetupLog): PlatformSetupFormState {
   return {
     loggedAt: formatDateTimeInput(log.loggedAt),
     waveMaster: log.waveMaster ?? "",
@@ -705,6 +719,29 @@ function setupFormFromLog(log: PlatformSetupLog) {
     waterLevelCm: log.waterLevelCm === null ? "" : formatNumber(log.waterLevelCm, 1),
     dischargeCms: log.dischargeCms === null ? "" : formatNumber(log.dischargeCms, 2),
     note: log.note ?? "",
+  };
+}
+
+function emptyObservationForm(observedAt = formatDateTimeInput(Date.now())): ObservationFormState {
+  return {
+    observedAt,
+    trimCm: "",
+    quality: 3.0,
+    note: "",
+  };
+}
+
+function observationFormFromObservation(
+  observation: SurfObservation,
+): ObservationFormState {
+  return {
+    observedAt: formatDateTimeInput(observation.observedAt),
+    trimCm:
+      observation.trimCm === null
+        ? ""
+        : String(Math.round(observation.trimCm * 10) / 10),
+    quality: observation.quality,
+    note: observation.note ?? "",
   };
 }
 
@@ -1741,15 +1778,14 @@ export default function Home() {
     timeZoom: defaultTimeZoom,
   });
   const [observations, setObservations] = useState<SurfObservation[]>([]);
-  const [observationForm, setObservationForm] = useState<ObservationFormState>(() => ({
-    observedAt: formatDateTimeInput(Date.now()),
-    trimCm: "",
-    quality: 3.0,
-    note: "",
-  }));
+  const [observationForm, setObservationForm] = useState<ObservationFormState>(() =>
+    emptyObservationForm(),
+  );
   const [editingObservationId, setEditingObservationId] = useState<number | null>(
     null,
   );
+  const [observationEditForm, setObservationEditForm] =
+    useState<ObservationFormState | null>(null);
   const [observationSaving, setObservationSaving] = useState(false);
   const [deletingObservationId, setDeletingObservationId] = useState<number | null>(
     null,
@@ -1758,6 +1794,8 @@ export default function Home() {
   const [setupLogs, setSetupLogs] = useState<PlatformSetupLog[]>([]);
   const [setupForm, setSetupForm] = useState(() => emptySetupForm());
   const [editingSetupId, setEditingSetupId] = useState<number | null>(null);
+  const [setupEditForm, setSetupEditForm] =
+    useState<PlatformSetupFormState | null>(null);
   const [setupSaving, setSetupSaving] = useState(false);
   const [deletingSetupId, setDeletingSetupId] = useState<number | null>(null);
   const [setupMessage, setSetupMessage] = useState("");
@@ -1867,11 +1905,8 @@ export default function Home() {
     }
   }
 
-  async function submitSetupLog(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSetupMessage("");
-
-    const loggedAt = parseDateTimeInput(setupForm.loggedAt);
+  async function saveSetupForm(form: PlatformSetupFormState, id: number | null) {
+    const loggedAt = parseDateTimeInput(form.loggedAt);
 
     if (loggedAt === null) {
       setSetupMessage("Bitte Datum und Uhrzeit eintragen.");
@@ -1880,23 +1915,23 @@ export default function Home() {
 
     setSetupSaving(true);
     try {
-      const isEditing = editingSetupId !== null;
+      const isEditing = id !== null;
       const response = await fetch("/api/platform-setup", {
         method: isEditing ? "PUT" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          id: editingSetupId,
+          id,
           loggedAt,
-          waveMaster: setupForm.waveMaster,
-          chainLeftCm: setupForm.chainLeftCm,
-          chainRightCm: setupForm.chainRightCm,
-          rampPosition: setupForm.rampPosition,
-          trimHeightCm: setupForm.trimHeightCm,
-          tensionLeft: setupForm.tensionLeft,
-          tensionRight: setupForm.tensionRight,
-          waterLevelCm: setupForm.waterLevelCm,
-          dischargeCms: setupForm.dischargeCms,
-          note: setupForm.note,
+          waveMaster: form.waveMaster,
+          chainLeftCm: form.chainLeftCm,
+          chainRightCm: form.chainRightCm,
+          rampPosition: form.rampPosition,
+          trimHeightCm: form.trimHeightCm,
+          tensionLeft: form.tensionLeft,
+          tensionRight: form.tensionRight,
+          waterLevelCm: form.waterLevelCm,
+          dischargeCms: form.dischargeCms,
+          note: form.note,
         }),
       });
       const data = (await response.json()) as {
@@ -1911,7 +1946,10 @@ export default function Home() {
         return sortSetupLogs([data.log!, ...withoutOldVersion]).slice(0, 80);
       });
       setEditingSetupId(null);
-      setSetupForm(emptySetupForm(setupForm.loggedAt));
+      setSetupEditForm(null);
+      if (!isEditing) {
+        setSetupForm(emptySetupForm(form.loggedAt));
+      }
       setSetupMessage(
         isEditing
           ? "Setup-Wert aktualisiert. Pegel/Abfluss wurden neu aus Reichenau zugeordnet."
@@ -1924,6 +1962,22 @@ export default function Home() {
     } finally {
       setSetupSaving(false);
     }
+  }
+
+  async function submitSetupLog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSetupMessage("");
+    await saveSetupForm(setupForm, null);
+  }
+
+  async function submitSetupEdit(id: number, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSetupMessage("");
+    if (!setupEditForm) {
+      setSetupMessage("Kein Setup-Wert zum Bearbeiten ausgewählt.");
+      return;
+    }
+    await saveSetupForm(setupEditForm, id);
   }
 
   async function deleteSetupLog(id: number) {
@@ -1953,22 +2007,19 @@ export default function Home() {
 
   function editSetupLog(log: PlatformSetupLog) {
     setEditingSetupId(log.id);
-    setSetupForm(setupFormFromLog(log));
-    setSetupMessage("Setup-Wert wird bearbeitet.");
+    setSetupEditForm(setupFormFromLog(log));
+    setSetupMessage("Setup-Wert direkt in der Liste bearbeiten.");
   }
 
   function cancelSetupEdit() {
     setEditingSetupId(null);
-    setSetupForm(emptySetupForm());
+    setSetupEditForm(null);
     setSetupMessage("");
   }
 
-  async function submitObservation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setObservationMessage("");
-
-    const trimCm = Number(observationForm.trimCm);
-    const observedAt = parseDateTimeInput(observationForm.observedAt);
+  async function saveObservationForm(form: ObservationFormState, id: number | null) {
+    const trimCm = Number(form.trimCm);
+    const observedAt = parseDateTimeInput(form.observedAt);
 
     if (observedAt === null) {
       setObservationMessage("Bitte Zeitpunkt eintragen.");
@@ -1982,16 +2033,16 @@ export default function Home() {
 
     setObservationSaving(true);
     try {
-      const isEditing = editingObservationId !== null;
+      const isEditing = id !== null;
       const response = await fetch("/api/surf-observations", {
         method: isEditing ? "PUT" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          id: editingObservationId,
+          id,
           observedAt,
           trimCm,
-          quality: observationForm.quality,
-          note: observationForm.note,
+          quality: form.quality,
+          note: form.note,
         }),
       });
       const data = (await response.json()) as {
@@ -2011,12 +2062,15 @@ export default function Home() {
         );
       });
       setEditingObservationId(null);
-      setObservationForm((current) => ({
-        ...current,
-        observedAt: formatDateTimeInput(observedAt + 30 * 60 * 1000),
-        trimCm: "",
-        note: "",
-      }));
+      setObservationEditForm(null);
+      if (!isEditing) {
+        setObservationForm((current) => ({
+          ...current,
+          observedAt: formatDateTimeInput(observedAt + 30 * 60 * 1000),
+          trimCm: "",
+          note: "",
+        }));
+      }
       setObservationMessage(isEditing ? "Eintrag aktualisiert." : "Gespeichert.");
     } catch (err) {
       setObservationMessage(
@@ -2027,28 +2081,34 @@ export default function Home() {
     }
   }
 
+  async function submitObservation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setObservationMessage("");
+    await saveObservationForm(observationForm, null);
+  }
+
+  async function submitObservationEdit(
+    id: number,
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+    setObservationMessage("");
+    if (!observationEditForm) {
+      setObservationMessage("Kein Eintrag zum Bearbeiten ausgewählt.");
+      return;
+    }
+    await saveObservationForm(observationEditForm, id);
+  }
+
   function editObservation(observation: SurfObservation) {
     setEditingObservationId(observation.id);
-    setObservationForm({
-      observedAt: formatDateTimeInput(observation.observedAt),
-      trimCm:
-        observation.trimCm === null
-          ? ""
-          : String(Math.round(observation.trimCm * 10) / 10),
-      quality: observation.quality,
-      note: observation.note ?? "",
-    });
-    setObservationMessage("Eintrag wird bearbeitet.");
+    setObservationEditForm(observationFormFromObservation(observation));
+    setObservationMessage("Eintrag direkt in der Liste bearbeiten.");
   }
 
   function cancelObservationEdit() {
     setEditingObservationId(null);
-    setObservationForm({
-      observedAt: formatDateTimeInput(Date.now()),
-      trimCm: "",
-      quality: 3.0,
-      note: "",
-    });
+    setObservationEditForm(null);
     setObservationMessage("");
   }
 
@@ -2678,6 +2738,9 @@ export default function Home() {
                   submitObservation={submitObservation}
                   observationSaving={observationSaving}
                   editingObservationId={editingObservationId}
+                  observationEditForm={observationEditForm}
+                  setObservationEditForm={setObservationEditForm}
+                  submitObservationEdit={submitObservationEdit}
                   cancelObservationEdit={cancelObservationEdit}
                   observationMessage={observationMessage}
                   editObservation={editObservation}
@@ -2757,19 +2820,22 @@ export default function Home() {
       <PlatformSetupSection
         setupLogs={setupLogs}
         setupForm={setupForm}
+        setupEditForm={setupEditForm}
+        setSetupEditForm={setSetupEditForm}
         setupMessage={setupMessage}
         editingSetupId={editingSetupId}
         setupSaving={setupSaving}
         deletingSetupId={deletingSetupId}
         onFormChange={setSetupForm}
         onSubmit={submitSetupLog}
+        onSubmitEdit={submitSetupEdit}
         onEdit={editSetupLog}
         onCancelEdit={cancelSetupEdit}
         onDelete={deleteSetupLog}
       />
 
       <footer className="source-line">
-        Version 0.63.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.64.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
@@ -2783,6 +2849,9 @@ function ObservationSection({
   submitObservation,
   observationSaving,
   editingObservationId,
+  observationEditForm,
+  setObservationEditForm,
+  submitObservationEdit,
   cancelObservationEdit,
   observationMessage,
   editObservation,
@@ -2795,6 +2864,12 @@ function ObservationSection({
   submitObservation: (event: FormEvent<HTMLFormElement>) => void;
   observationSaving: boolean;
   editingObservationId: number | null;
+  observationEditForm: ObservationFormState | null;
+  setObservationEditForm: Dispatch<SetStateAction<ObservationFormState | null>>;
+  submitObservationEdit: (
+    id: number,
+    event: FormEvent<HTMLFormElement>,
+  ) => void;
   cancelObservationEdit: () => void;
   observationMessage: string;
   editObservation: (observation: SurfObservation) => void;
@@ -2891,22 +2966,8 @@ function ObservationSection({
           />
         </label>
         <button type="submit" disabled={observationSaving}>
-          {observationSaving
-            ? "Speichert"
-            : editingObservationId === null
-              ? "Speichern"
-              : "Aktualisieren"}
+          {observationSaving ? "Speichert" : "Speichern"}
         </button>
-        {editingObservationId !== null ? (
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={cancelObservationEdit}
-            disabled={observationSaving}
-          >
-            Abbrechen
-          </button>
-        ) : null}
       </form>
 
       {observationMessage ? (
@@ -2919,61 +2980,176 @@ function ObservationSection({
           <strong>{observations.length} Einträge</strong>
         </summary>
         <div className="observation-list" aria-label="Alle Sessionwerte">
-          {observations.map((observation) => (
-            <article key={observation.id}>
-              <div className="observation-card-head">
-                <span>{formatDate(observation.observedAt)}</span>
-                <div className="observation-card-actions">
-                  <button
-                    type="button"
-                    className="edit"
-                    onClick={() => editObservation(observation)}
-                    disabled={observationSaving}
+          {observations.map((observation) => {
+            const isEditing = editingObservationId === observation.id;
+            return (
+              <article
+                key={observation.id}
+                className={isEditing ? "is-editing" : undefined}
+              >
+                <div className="observation-card-head">
+                  <span>{formatDate(observation.observedAt)}</span>
+                  <div className="observation-card-actions">
+                    {isEditing ? (
+                      <button
+                        type="button"
+                        className="edit"
+                        onClick={cancelObservationEdit}
+                        disabled={observationSaving}
+                      >
+                        Abbrechen
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="edit"
+                        onClick={() => editObservation(observation)}
+                        disabled={observationSaving}
+                      >
+                        Bearbeiten
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void deleteObservation(observation.id)}
+                      disabled={deletingObservationId === observation.id}
+                    >
+                      Löschen
+                    </button>
+                  </div>
+                </div>
+
+                {isEditing && observationEditForm ? (
+                  <form
+                    className="observation-inline-form"
+                    onSubmit={(event) => submitObservationEdit(observation.id, event)}
                   >
-                    Bearbeiten
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void deleteObservation(observation.id)}
-                    disabled={deletingObservationId === observation.id}
-                  >
-                    Löschen
-                  </button>
-                </div>
-              </div>
-              <strong className={`quality-chip ${ratingClass(observation.quality)}`}>
-                {formatQuality(observation.quality)}/5
-              </strong>
-              <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
-              <dl>
-                <div>
-                  <dt>Abfluss K/P/R</dt>
-                  <dd>
-                    {formatTriple(
-                      observation.kroessbachDischarge,
-                      observation.puigDischarge,
-                      observation.reichenauDischarge,
-                      2,
-                    )}{" "}
-                    m³/s
-                  </dd>
-                </div>
-                <div>
-                  <dt>Pegel K/P/R</dt>
-                  <dd>
-                    {formatTriple(
-                      observation.kroessbachLevel,
-                      observation.puigLevel,
-                      observation.reichenauLevel,
-                      1,
-                    )}{" "}
-                    cm
-                  </dd>
-                </div>
-              </dl>
-              {observation.note ? <small>{observation.note}</small> : null}
-            </article>
-          ))}
+                    <label>
+                      <span>Zeitpunkt</span>
+                      <input
+                        type="datetime-local"
+                        required
+                        value={observationEditForm.observedAt}
+                        onChange={(event) =>
+                          setObservationEditForm((current) =>
+                            current
+                              ? { ...current, observedAt: event.target.value }
+                              : current,
+                          )
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Trim cm</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        required
+                        value={observationEditForm.trimCm}
+                        onChange={(event) =>
+                          setObservationEditForm((current) =>
+                            current
+                              ? { ...current, trimCm: event.target.value }
+                              : current,
+                          )
+                        }
+                      />
+                    </label>
+                    <fieldset>
+                      <legend>Welle</legend>
+                      <div className="rating-slider">
+                        <strong>{formatQuality(observationEditForm.quality)}</strong>
+                        <input
+                          type="range"
+                          min="1"
+                          max="5"
+                          step="0.1"
+                          value={observationEditForm.quality}
+                          aria-label="Wellenqualität von 1,0 bis 5,0"
+                          onChange={(event) =>
+                            setObservationEditForm((current) =>
+                              current
+                                ? { ...current, quality: Number(event.target.value) }
+                                : current,
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="rating-scale">
+                        <span>1,0 schlecht</span>
+                        <span>5,0 gut</span>
+                      </div>
+                    </fieldset>
+                    <label>
+                      <span>Notiz</span>
+                      <input
+                        type="text"
+                        value={observationEditForm.note}
+                        onChange={(event) =>
+                          setObservationEditForm((current) =>
+                            current ? { ...current, note: event.target.value } : current,
+                          )
+                        }
+                        placeholder="optional"
+                      />
+                    </label>
+                    <div className="inline-form-actions">
+                      <button type="submit" disabled={observationSaving}>
+                        {observationSaving ? "Speichert" : "Aktualisieren"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-action"
+                        onClick={cancelObservationEdit}
+                        disabled={observationSaving}
+                      >
+                        Abbrechen
+                      </button>
+                    </div>
+                    <small>
+                      Pegel und Abfluss werden beim Speichern zur eingestellten
+                      Uhrzeit neu aus den Messwerten zugeordnet.
+                    </small>
+                  </form>
+                ) : (
+                  <>
+                    <strong className={`quality-chip ${ratingClass(observation.quality)}`}>
+                      {formatQuality(observation.quality)}/5
+                    </strong>
+                    <p>{formatTrimCm(observation.trimCm, observation.trim)}</p>
+                    <dl>
+                      <div>
+                        <dt>Abfluss K/P/R</dt>
+                        <dd>
+                          {formatTriple(
+                            observation.kroessbachDischarge,
+                            observation.puigDischarge,
+                            observation.reichenauDischarge,
+                            2,
+                          )}{" "}
+                          m³/s
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Pegel K/P/R</dt>
+                        <dd>
+                          {formatTriple(
+                            observation.kroessbachLevel,
+                            observation.puigLevel,
+                            observation.reichenauLevel,
+                            1,
+                          )}{" "}
+                          cm
+                        </dd>
+                      </div>
+                    </dl>
+                    {observation.note ? <small>{observation.note}</small> : null}
+                  </>
+                )}
+              </article>
+            );
+          })}
           {!observations.length ? (
             <article>
               <span>Noch keine Einträge</span>
@@ -3149,50 +3325,30 @@ function SpotInsightSection({
 function PlatformSetupSection({
   setupLogs,
   setupForm,
+  setupEditForm,
+  setSetupEditForm,
   setupMessage,
   editingSetupId,
   setupSaving,
   deletingSetupId,
   onFormChange,
   onSubmit,
+  onSubmitEdit,
   onEdit,
   onCancelEdit,
   onDelete,
 }: {
   setupLogs: PlatformSetupLog[];
-  setupForm: {
-    loggedAt: string;
-    waveMaster: string;
-    chainLeftCm: string;
-    chainRightCm: string;
-    rampPosition: string;
-    trimHeightCm: string;
-    tensionLeft: string;
-    tensionRight: string;
-    waterLevelCm: string;
-    dischargeCms: string;
-    note: string;
-  };
+  setupForm: PlatformSetupFormState;
+  setupEditForm: PlatformSetupFormState | null;
+  setSetupEditForm: Dispatch<SetStateAction<PlatformSetupFormState | null>>;
   setupMessage: string;
   editingSetupId: number | null;
   setupSaving: boolean;
   deletingSetupId: number | null;
-  onFormChange: Dispatch<
-    SetStateAction<{
-      loggedAt: string;
-      waveMaster: string;
-      chainLeftCm: string;
-      chainRightCm: string;
-      rampPosition: string;
-      trimHeightCm: string;
-      tensionLeft: string;
-      tensionRight: string;
-      waterLevelCm: string;
-      dischargeCms: string;
-      note: string;
-    }>
-  >;
+  onFormChange: Dispatch<SetStateAction<PlatformSetupFormState>>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onSubmitEdit: (id: number, event: FormEvent<HTMLFormElement>) => void;
   onEdit: (log: PlatformSetupLog) => void;
   onCancelEdit: () => void;
   onDelete: (id: number) => void;
@@ -3361,80 +3517,260 @@ function PlatformSetupSection({
           />
         </label>
         <button type="submit" disabled={setupSaving}>
-          {setupSaving
-            ? "Speichert"
-            : editingSetupId === null
-              ? "Setup speichern"
-              : "Aktualisieren"}
+          {setupSaving ? "Speichert" : "Setup speichern"}
         </button>
-        {editingSetupId !== null ? (
-          <button
-            type="button"
-            className="secondary-action"
-            onClick={onCancelEdit}
-            disabled={setupSaving}
-          >
-            Abbrechen
-          </button>
-        ) : null}
       </form>
 
       {setupMessage ? <p className="setup-message">{setupMessage}</p> : null}
 
       <div className="setup-log-list">
-        {setupLogs.map((log) => (
-          <article key={log.id}>
-            <div className="setup-log-head">
-              <div>
-                <span>{formatDate(log.loggedAt)}</span>
-                <strong>{log.waveMaster ?? "Wellenmeister:in n/a"}</strong>
+        {setupLogs.map((log) => {
+          const isEditing = editingSetupId === log.id;
+          return (
+            <article key={log.id} className={isEditing ? "is-editing" : undefined}>
+              <div className="setup-log-head">
+                <div>
+                  <span>{formatDate(log.loggedAt)}</span>
+                  <strong>{log.waveMaster ?? "Wellenmeister:in n/a"}</strong>
+                </div>
+                <div className="setup-log-actions">
+                  {isEditing ? (
+                    <button
+                      type="button"
+                      className="edit"
+                      onClick={onCancelEdit}
+                      disabled={setupSaving}
+                    >
+                      Abbrechen
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="edit"
+                      onClick={() => onEdit(log)}
+                      disabled={setupSaving}
+                    >
+                      Bearbeiten
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onDelete(log.id)}
+                    disabled={deletingSetupId === log.id}
+                  >
+                    Löschen
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                className="edit"
-                onClick={() => onEdit(log)}
-                disabled={setupSaving}
-              >
-                Bearbeiten
-              </button>
-              <button
-                type="button"
-                onClick={() => onDelete(log.id)}
-                disabled={deletingSetupId === log.id}
-              >
-                Löschen
-              </button>
-            </div>
-            <dl>
-              <div>
-                <dt>Kettenzug li/re</dt>
-                <dd>{formatSetupPair(log.chainLeftCm, log.chainRightCm)}</dd>
-              </div>
-              <div>
-                <dt>Rampe</dt>
-                <dd>{log.rampPosition ?? "-"}</dd>
-              </div>
-              <div>
-                <dt>Trimmhöhe</dt>
-                <dd>{formatOptionalCm(log.trimHeightCm)}</dd>
-              </div>
-              <div>
-                <dt>Spannung li/re</dt>
-                <dd>
-                  {formatBooleanFlag(log.tensionLeft)} / {formatBooleanFlag(log.tensionRight)}
-                </dd>
-              </div>
-              <div>
-                <dt>Reichenau Messwert</dt>
-                <dd>
-                  {formatNumber(log.waterLevelCm, 1)} cm /{" "}
-                  {formatNumber(log.dischargeCms, 2)} m³/s
-                </dd>
-              </div>
-            </dl>
-            {log.note ? <p>{log.note}</p> : null}
-          </article>
-        ))}
+
+              {isEditing && setupEditForm ? (
+                <form
+                  className="setup-inline-form"
+                  onSubmit={(event) => onSubmitEdit(log.id, event)}
+                >
+                  <label>
+                    <span>Datum & Uhrzeit</span>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={setupEditForm.loggedAt}
+                      onChange={(event) =>
+                        setSetupEditForm((current) =>
+                          current ? { ...current, loggedAt: event.target.value } : current,
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>Wellenmeister:in</span>
+                    <input
+                      type="text"
+                      value={setupEditForm.waveMaster}
+                      onChange={(event) =>
+                        setSetupEditForm((current) =>
+                          current
+                            ? { ...current, waveMaster: event.target.value }
+                            : current,
+                        )
+                      }
+                      placeholder="Name"
+                    />
+                  </label>
+                  <label>
+                    <span>Kettenzug li</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={setupEditForm.chainLeftCm}
+                      onChange={(event) =>
+                        setSetupEditForm((current) =>
+                          current
+                            ? { ...current, chainLeftCm: event.target.value }
+                            : current,
+                        )
+                      }
+                      placeholder="cm"
+                    />
+                  </label>
+                  <label>
+                    <span>Kettenzug re</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={setupEditForm.chainRightCm}
+                      onChange={(event) =>
+                        setSetupEditForm((current) =>
+                          current
+                            ? { ...current, chainRightCm: event.target.value }
+                            : current,
+                        )
+                      }
+                      placeholder="cm"
+                    />
+                  </label>
+                  <label>
+                    <span>Rampe</span>
+                    <input
+                      type="text"
+                      value={setupEditForm.rampPosition}
+                      onChange={(event) =>
+                        setSetupEditForm((current) =>
+                          current
+                            ? { ...current, rampPosition: event.target.value }
+                            : current,
+                        )
+                      }
+                      placeholder="z.B. Mittig"
+                    />
+                  </label>
+                  <label>
+                    <span>Trimmhöhe</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={setupEditForm.trimHeightCm}
+                      onChange={(event) =>
+                        setSetupEditForm((current) =>
+                          current
+                            ? { ...current, trimHeightCm: event.target.value }
+                            : current,
+                        )
+                      }
+                      placeholder="cm"
+                    />
+                  </label>
+                  <label>
+                    <span>Spannung li</span>
+                    <select
+                      value={setupEditForm.tensionLeft}
+                      onChange={(event) =>
+                        setSetupEditForm((current) =>
+                          current
+                            ? { ...current, tensionLeft: event.target.value }
+                            : current,
+                        )
+                      }
+                    >
+                      <option value="">-</option>
+                      <option value="true">Ja</option>
+                      <option value="false">Nein</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Spannung re</span>
+                    <select
+                      value={setupEditForm.tensionRight}
+                      onChange={(event) =>
+                        setSetupEditForm((current) =>
+                          current
+                            ? { ...current, tensionRight: event.target.value }
+                            : current,
+                        )
+                      }
+                    >
+                      <option value="">-</option>
+                      <option value="true">Ja</option>
+                      <option value="false">Nein</option>
+                    </select>
+                  </label>
+                  <label className="setup-note-field">
+                    <span>Bemerkungen</span>
+                    <input
+                      type="text"
+                      value={setupEditForm.note}
+                      onChange={(event) =>
+                        setSetupEditForm((current) =>
+                          current ? { ...current, note: event.target.value } : current,
+                        )
+                      }
+                      placeholder="Was wurde verändert, wie war die Welle?"
+                    />
+                  </label>
+                  <div className="setup-auto-field">
+                    <span>Pegel Reichenau</span>
+                    <strong>{setupEditForm.waterLevelCm || "auto"}</strong>
+                  </div>
+                  <div className="setup-auto-field">
+                    <span>Abfluss Reichenau</span>
+                    <strong>{setupEditForm.dischargeCms || "auto"}</strong>
+                  </div>
+                  <div className="inline-form-actions">
+                    <button type="submit" disabled={setupSaving}>
+                      {setupSaving ? "Speichert" : "Aktualisieren"}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-action"
+                      onClick={onCancelEdit}
+                      disabled={setupSaving}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                  <small>
+                    Pegel und Abfluss Reichenau werden beim Speichern passend zur
+                    Uhrzeit neu zugeordnet.
+                  </small>
+                </form>
+              ) : (
+                <>
+                  <dl>
+                    <div>
+                      <dt>Kettenzug li/re</dt>
+                      <dd>{formatSetupPair(log.chainLeftCm, log.chainRightCm)}</dd>
+                    </div>
+                    <div>
+                      <dt>Rampe</dt>
+                      <dd>{log.rampPosition ?? "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Trimmhöhe</dt>
+                      <dd>{formatOptionalCm(log.trimHeightCm)}</dd>
+                    </div>
+                    <div>
+                      <dt>Spannung li/re</dt>
+                      <dd>
+                        {formatBooleanFlag(log.tensionLeft)} /{" "}
+                        {formatBooleanFlag(log.tensionRight)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Reichenau Messwert</dt>
+                      <dd>
+                        {formatNumber(log.waterLevelCm, 1)} cm /{" "}
+                        {formatNumber(log.dischargeCms, 2)} m³/s
+                      </dd>
+                    </div>
+                  </dl>
+                  {log.note ? <p>{log.note}</p> : null}
+                </>
+              )}
+            </article>
+          );
+        })}
         {!setupLogs.length ? (
           <article>
             <div className="setup-log-head">

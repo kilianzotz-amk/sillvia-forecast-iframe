@@ -589,6 +589,8 @@ h3 {
 .observation-count span,
 .observation-form span,
 .observation-form legend,
+.observation-inline-form span,
+.observation-inline-form legend,
 .observation-list span {
   color: var(--muted);
   display: block;
@@ -606,11 +608,13 @@ h3 {
   align-items: end;
   display: grid;
   gap: 12px;
-  grid-template-columns: 1.1fr 0.75fr 0.9fr 1fr 112px 108px;
+  grid-template-columns: 1.1fr 0.75fr 0.9fr 1fr 112px;
 }
 
 .observation-form label,
-.observation-form fieldset {
+.observation-form fieldset,
+.observation-inline-form label,
+.observation-inline-form fieldset {
   border: 0;
   display: grid;
   gap: 6px;
@@ -619,7 +623,8 @@ h3 {
   padding: 0;
 }
 
-.observation-form input {
+.observation-form input,
+.observation-inline-form input {
   border: 1px solid var(--line);
   border-radius: 7px;
   color: var(--ink);
@@ -629,6 +634,18 @@ h3 {
   min-width: 0;
   padding: 0 11px;
   width: 100%;
+}
+
+.observation-inline-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.observation-inline-form > label:last-of-type,
+.observation-inline-form small {
+  grid-column: 1 / -1;
 }
 
 .rating-slider {
@@ -641,7 +658,8 @@ h3 {
   padding: 7px 10px;
 }
 
-.observation-form > button {
+.observation-form > button,
+.inline-form-actions button {
   border: 0;
   border-radius: 6px;
   color: var(--ink);
@@ -707,21 +725,31 @@ h3 {
   margin: 0;
 }
 
-.observation-form > button {
+.observation-form > button,
+.inline-form-actions button {
   background: var(--ink);
   color: #fff;
   padding: 0 14px;
 }
 
-.observation-form > button.secondary-action {
+.observation-form > button.secondary-action,
+.inline-form-actions button.secondary-action {
   background: #eef4f5;
   border: 1px solid var(--line);
   color: var(--ink);
 }
 
-.observation-form > button:disabled {
+.observation-form > button:disabled,
+.inline-form-actions button:disabled {
   cursor: wait;
   opacity: 0.64;
+}
+
+.inline-form-actions {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .observation-message {
@@ -747,6 +775,13 @@ h3 {
   border-radius: 8px;
   min-height: 104px;
   padding: 12px;
+}
+
+.observation-list article.is-editing,
+.setup-log-list article.is-editing {
+  background: #fbfdfd;
+  border-color: var(--teal);
+  box-shadow: inset 4px 0 0 var(--teal);
 }
 
 .observation-card-head {
@@ -854,6 +889,7 @@ h3 {
 
 .setup-marker span,
 .setup-form span,
+.setup-inline-form span,
 .setup-log-list dt {
   color: var(--muted);
   font-size: 0.74rem;
@@ -883,7 +919,14 @@ h3 {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
+.setup-inline-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .setup-form label,
+.setup-inline-form label,
 .setup-auto-field {
   display: grid;
   gap: 6px;
@@ -895,7 +938,9 @@ h3 {
 }
 
 .setup-form input,
-.setup-form select {
+.setup-form select,
+.setup-inline-form input,
+.setup-inline-form select {
   border: 1px solid var(--line);
   border-radius: 7px;
   color: var(--ink);
@@ -920,7 +965,8 @@ h3 {
   font-size: 0.92rem;
 }
 
-.setup-form button {
+.setup-form button,
+.setup-inline-form button {
   align-self: end;
   background: var(--ink);
   border: 0;
@@ -932,13 +978,15 @@ h3 {
   padding: 0 14px;
 }
 
-.setup-form button.secondary-action {
+.setup-form button.secondary-action,
+.setup-inline-form button.secondary-action {
   background: #eef4f5;
   border: 1px solid var(--line);
   color: var(--ink);
 }
 
-.setup-form button:disabled {
+.setup-form button:disabled,
+.setup-inline-form button:disabled {
   cursor: wait;
   opacity: 0.64;
 }
@@ -970,6 +1018,13 @@ h3 {
   display: flex;
   gap: 10px;
   justify-content: space-between;
+}
+
+.setup-log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
 .setup-log-head span {
@@ -1027,6 +1082,13 @@ h3 {
   font-size: 0.84rem;
   line-height: 1.45;
   margin: 0;
+}
+
+.setup-inline-form small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  grid-column: 1 / -1;
+  line-height: 1.4;
 }
 
 .spot-insight-source {
@@ -2052,9 +2114,11 @@ h3 {
   .top-band,
   .quality-grid,
   .observation-form,
+  .observation-inline-form,
   .observation-list,
   .spot-insight-grid,
   .setup-form,
+  .setup-inline-form,
   .setup-log-list,
   .setup-log-list dl,
   .forecast-layout,
