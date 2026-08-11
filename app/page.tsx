@@ -2569,7 +2569,6 @@ export default function Home() {
           <WaveQualityCard title="Jetzt" quality={qualityNow} />
           <WaveQualityScale projections={qualityTimeline} />
         </div>
-        <DataQualityBox signal={qualityNow.data} />
       </section>
 
       <SpotInsightSection
@@ -2878,7 +2877,7 @@ export default function Home() {
       </section>
 
       <footer className="source-line">
-        Version 55 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 56 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
@@ -3555,38 +3554,6 @@ function Metric({
       <strong>
         {value} <small>{unit}</small>
       </strong>
-    </article>
-  );
-}
-
-function DataQualityBox({ signal }: { signal: DataQualitySignal }) {
-  return (
-    <article className={`data-quality-box ${signal.label}`}>
-      <div>
-        <span>Bewertung aus Daten</span>
-        <strong>
-          {signal.score === null ? "n/a" : `${signal.score} %`}
-        </strong>
-      </div>
-      <dl>
-        <div>
-          <dt>Aussagekraft</dt>
-          <dd>{signal.label} · {signal.confidence} %</dd>
-        </div>
-        <div>
-          <dt>Datenbasis</dt>
-          <dd>{signal.sampleSize} Werte · {signal.basis}</dd>
-        </div>
-        <div>
-          <dt>Ähnliche Punkte</dt>
-          <dd>{signal.matchedCount}</dd>
-        </div>
-        <div>
-          <dt>Neues Setup</dt>
-          <dd>{signal.sameSetupCount} Werte</dd>
-        </div>
-      </dl>
-      <p>{signal.note}</p>
     </article>
   );
 }
