@@ -2178,6 +2178,41 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.runtime-inline-recommendation {
+  background: #fff8eb;
+  border: 1px solid #e2b56d;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(0, 1.2fr);
+  padding: 12px;
+}
+
+.runtime-inline-recommendation div {
+  display: grid;
+  gap: 5px;
+}
+
+.runtime-inline-recommendation span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.runtime-inline-recommendation strong {
+  color: var(--ink);
+  font-size: 1.2rem;
+}
+
+.runtime-inline-recommendation small,
+.runtime-inline-recommendation p {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.42;
+  margin: 0;
+}
+
 .review-presets {
   display: grid;
   gap: 6px;
@@ -2552,6 +2587,7 @@ h3 {
   }
 
   .runtime-inline-grid,
+  .runtime-inline-recommendation,
   .arrival-list.compact {
     grid-template-columns: 1fr;
   }

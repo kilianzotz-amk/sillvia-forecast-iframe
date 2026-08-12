@@ -2947,6 +2947,7 @@ export default function Home() {
     forecastSettings,
     chartTimeDomain,
   );
+  const runtimeRecommendationHint = runtimeComparison.recommendation;
   const forecastArrivalKroessbach =
     (kr?.discharge.dt ?? mostRecent ?? nowMs) +
     forecastSettings.lagKroessbach * 60 * 1000;
@@ -3289,6 +3290,26 @@ export default function Home() {
                   </div>
                 </dl>
               </div>
+              <div className="runtime-inline-recommendation">
+                <div>
+                  <span>Empfohlene Einstellung</span>
+                  <strong>
+                    {runtimeRecommendationHint
+                      ? `${runtimeRecommendationHint.lagKroessbach} / ${runtimeRecommendationHint.lagPuig} min`
+                      : "noch zu wenig Daten"}
+                  </strong>
+                  <small>
+                    {runtimeRecommendationHint
+                      ? `Krössbach / Puig · ${runtimeRecommendationHint.confidence} % Sicherheit · ${runtimeRecommendationHint.count} Vergleiche`
+                      : "Sobald genug Vergleichspunkte sichtbar sind, erscheint hier ein Vorschlag."}
+                  </small>
+                </div>
+                <p>
+                  Der Vorschlag zeigt, welche Laufzeiten im sichtbaren Zeitraum
+                  am besten zu Reichenau passen. Er hilft beim Feintunen der
+                  Regler, wird aber nicht automatisch übernommen.
+                </p>
+              </div>
               <div className="runtime-inline-grid">
                 <RuntimeControl
                   label="Krössbach → Reichenau"
@@ -3470,7 +3491,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.77.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.78.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
