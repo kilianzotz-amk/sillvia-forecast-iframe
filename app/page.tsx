@@ -170,6 +170,17 @@ type DataQualitySignal = {
   note: string;
 };
 
+type TrimSuggestion = {
+  trimCm: number | null;
+  minCm: number | null;
+  maxCm: number | null;
+  confidence: number;
+  sampleSize: number;
+  matchedCount: number;
+  basis: "gute ähnliche Werte" | "ähnliche Werte" | "zu wenig Daten";
+  note: string;
+};
+
 type SessionReport = {
   timeDomain: TimeDomain;
   sessionDomain: TimeDomain;
@@ -219,6 +230,7 @@ type WaveQualityProjection = {
   data: DataQualitySignal;
   dataScore: number;
   manual: ManualQualitySignal | null;
+  trimSuggestion: TrimSuggestion;
 };
 
 type RuntimeComparisonPoint = {
@@ -689,6 +701,21 @@ function formatTrimCm(value: number | null, fallback: string) {
   }
 
   return fallback || "n/a";
+}
+
+function formatTrimRange(suggestion: TrimSuggestion) {
+  if (suggestion.trimCm === null) return "n/a";
+  if (suggestion.minCm === null || suggestion.maxCm === null) {
+    return `${formatNumber(suggestion.trimCm, 1)} cm`;
+  }
+
+  const hasRange = Math.abs(suggestion.maxCm - suggestion.minCm) >= 0.2;
+  return hasRange
+    ? `${formatNumber(suggestion.trimCm, 1)} cm · ${formatNumber(
+        suggestion.minCm,
+        1,
+      )}-${formatNumber(suggestion.maxCm, 1)} cm`
+    : `${formatNumber(suggestion.trimCm, 1)} cm`;
 }
 
 function formatSignedNumber(value: number | null, digits = 2) {
@@ -1375,6 +1402,131 @@ function dataQualitySignal(
       basisLabel === "altes Setup"
         ? "Noch zu wenige Bewertungen im neuen Setup. Signal wird gedämpft."
         : "Ähnliche gespeicherte Bewertungen werden gewichtet.",
+  };
+}
+
+function weightedAverage(
+  entries: Array<{ value: number; weight: number }>,
+) {
+  const weightSum = entries.reduce((sum, entry) => sum + entry.weight, 0);
+  if (weightSum <= 0) return null;
+  return (
+    entries.reduce((sum, entry) => sum + entry.value * entry.weight, 0) / weightSum
+  );
+}
+
+function trimSuggestionSignal(
+  observations: SurfObservation[],
+  target: {
+    time: number;
+    delta: number;
+    upstream: number;
+    level: number | null;
+    reichenau: number | null;
+  },
+): TrimSuggestion {
+  const rated = observations
+    .filter(isRealObservation)
+    .filter((observation) => observation.trimCm !== null)
+    .filter((observation) => {
+      const features = observationDataFeatures(observation);
+      return (
+        features.delta !== null ||
+        features.upstream !== null ||
+        features.level !== null ||
+        features.reichenau !== null
+      );
+    });
+  const targetIsNewSetup = target.time >= platformSetupChangeAt;
+  const sameSetup = rated.filter((observation) =>
+    targetIsNewSetup
+      ? observation.observedAt >= platformSetupChangeAt
+      : observation.observedAt < platformSetupChangeAt,
+  );
+  const useSameSetup = sameSetup.length >= 3;
+  const basis = useSameSetup ? sameSetup : rated;
+
+  if (!basis.length) {
+    return {
+      trimCm: null,
+      minCm: null,
+      maxCm: null,
+      confidence: 0,
+      sampleSize: 0,
+      matchedCount: 0,
+      basis: "zu wenig Daten",
+      note: "Noch keine Trimwerte mit passenden Messdaten.",
+    };
+  }
+
+  const weighted = basis
+    .map((observation) => ({
+      observation,
+      similarity: dataSimilarity(target, observationDataFeatures(observation)),
+    }))
+    .filter((entry) => entry.similarity >= 0.08)
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, 8);
+  const good = weighted.filter((entry) => entry.observation.quality >= 3.5);
+  const usable = good.length >= 2 ? good : weighted;
+  const trimWeights = usable
+    .map((entry) => {
+      const trimCm = entry.observation.trimCm;
+      if (trimCm === null) return null;
+      const qualityWeight = clamp((entry.observation.quality - 1) / 4, 0.2, 1);
+      return {
+        value: trimCm,
+        weight: entry.similarity * qualityWeight,
+      };
+    })
+    .filter((entry): entry is { value: number; weight: number } => entry !== null);
+  const trimCm = weightedAverage(trimWeights);
+
+  if (trimCm === null) {
+    return {
+      trimCm: null,
+      minCm: null,
+      maxCm: null,
+      confidence: 0,
+      sampleSize: basis.length,
+      matchedCount: weighted.length,
+      basis: "zu wenig Daten",
+      note: "Ähnliche Punkte haben keinen verwertbaren Trimwert.",
+    };
+  }
+
+  const trimValues = trimWeights.map((entry) => entry.value);
+  const minCm = Math.min(...trimValues);
+  const maxCm = Math.max(...trimValues);
+  const weightSum = trimWeights.reduce((sum, entry) => sum + entry.weight, 0);
+  const setupPenalty = targetIsNewSetup && !useSameSetup ? 0.55 : 1;
+  const successPenalty = good.length >= 2 ? 1 : 0.65;
+  const confidence = Math.round(
+    clamp(
+      (Math.min(basis.length / 12, 1) * 0.4 +
+        Math.min(weighted.length / 6, 1) * 0.25 +
+        Math.min(weightSum / 3, 1) * 0.35) *
+        setupPenalty *
+        successPenalty,
+      0,
+      1,
+    ) * 100,
+  );
+
+  return {
+    trimCm,
+    minCm,
+    maxCm,
+    confidence,
+    sampleSize: basis.length,
+    matchedCount: weighted.length,
+    basis: good.length >= 2 ? "gute ähnliche Werte" : "ähnliche Werte",
+    note:
+      targetIsNewSetup && !useSameSetup
+        ? "BETA: neues Setup hat noch wenig eigene Trimdaten."
+        : good.length >= 2
+          ? "BETA: aus guten ähnlichen Wellenmeisterwerten."
+          : "BETA: aus ähnlichen Werten, noch wenig gute Treffer.",
   };
 }
 
@@ -2570,6 +2722,13 @@ export default function Home() {
     level: levelAtWave,
     reichenau: downstreamFlow,
   });
+  const trimSuggestionNow = trimSuggestionSignal(observations, {
+    time: waveTime,
+    delta: expectedWaveDelta,
+    upstream: upstreamAtWave,
+    level: levelAtWave,
+    reichenau: downstreamFlow,
+  });
   const qualityNowDataScore = blendDataQuality(qualityNowModelScore, dataNow);
   const qualityNow: WaveQualityProjection = {
     time: waveTime,
@@ -2582,6 +2741,7 @@ export default function Home() {
     data: dataNow,
     dataScore: qualityNowDataScore,
     manual: manualNow,
+    trimSuggestion: trimSuggestionNow,
     score: blendManualQuality(qualityNowDataScore, manualNow, waveTime),
   };
   const horizonEnd = waveTime + 2 * 60 * 60 * 1000;
@@ -2630,6 +2790,13 @@ export default function Home() {
         level,
         reichenau: upstream + point.value,
       });
+      const trimSuggestion = trimSuggestionSignal(observations, {
+        time: point.t,
+        delta: point.value,
+        upstream,
+        level,
+        reichenau: upstream + point.value,
+      });
       const dataScore = blendDataQuality(modelScore, data);
       return {
         time: point.t,
@@ -2642,6 +2809,7 @@ export default function Home() {
         data,
         dataScore,
         manual,
+        trimSuggestion,
         score: blendManualQuality(dataScore, manual, point.t),
       };
     });
@@ -2921,7 +3089,7 @@ export default function Home() {
           </div>
           <div className="quality-basis">
             <span>Modell</span>
-            <strong>Delta + Volumenbilanz + Oberlieger + Pegel + Meister</strong>
+            <strong>Delta + Volumenbilanz + Oberlieger + Pegel + Meister + Trim</strong>
           </div>
         </div>
         <div className="quality-grid">
@@ -3183,7 +3351,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.72.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.73.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
@@ -4657,6 +4825,18 @@ function WaveQualityCard({
       <div className="quality-meter" aria-label={`${title} ${quality.score} Prozent`}>
         <i style={{ width: `${quality.score}%` }} />
       </div>
+      <div className="trim-suggestion">
+        <span>
+          Trimvorschlag <span className="beta-badge">BETA</span>
+        </span>
+        <strong>{formatTrimRange(quality.trimSuggestion)}</strong>
+        <small>
+          {quality.trimSuggestion.confidence
+            ? `${quality.trimSuggestion.confidence} % Sicherheit · ${quality.trimSuggestion.matchedCount} Treffer`
+            : "Noch zu wenig Daten"}
+        </small>
+        <em>{quality.trimSuggestion.note}</em>
+      </div>
       <dl>
         <div>
           <dt>Zeit</dt>
@@ -4711,6 +4891,14 @@ function WaveQualityCard({
                   quality.manual.trimCm,
                   quality.manual.trim,
                 )}`
+              : "n/a"}
+          </dd>
+        </div>
+        <div>
+          <dt>Trimdaten</dt>
+          <dd>
+            {quality.trimSuggestion.sampleSize
+              ? `${quality.trimSuggestion.basis} · ${quality.trimSuggestion.sampleSize} Werte`
               : "n/a"}
           </dd>
         </div>

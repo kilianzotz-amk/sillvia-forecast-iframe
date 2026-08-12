@@ -494,6 +494,34 @@ h3 {
   height: 100%;
 }
 
+.trim-suggestion {
+  background: #eef4f5;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+}
+
+.trim-suggestion span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.trim-suggestion strong {
+  color: var(--ink);
+  font-size: 1.2rem;
+}
+
+.trim-suggestion small,
+.trim-suggestion em {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
 .quality-card dl {
   display: grid;
   gap: 10px;
