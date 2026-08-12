@@ -1963,7 +1963,8 @@ function latestAtWithAge(
     const point = history[index];
     if (point.t <= t) {
       if (t - point.t > maxAgeMs) return null;
-      return point[key];
+      const value = point[key];
+      if (value !== null && Number.isFinite(value)) return value;
     }
   }
   return null;
@@ -1975,7 +1976,10 @@ function latestAt(
   key: keyof Omit<HistoryPoint, "t">,
 ) {
   for (let index = history.length - 1; index >= 0; index -= 1) {
-    if (history[index].t <= t) return history[index][key];
+    if (history[index].t <= t) {
+      const value = history[index][key];
+      if (value !== null && Number.isFinite(value)) return value;
+    }
   }
   return null;
 }
@@ -3351,7 +3355,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.73.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.74.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
