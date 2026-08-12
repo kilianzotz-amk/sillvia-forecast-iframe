@@ -170,7 +170,10 @@ type DataQualitySignal = {
 };
 
 type SessionReport = {
+  timeDomain: TimeDomain;
+  sessionDomain: TimeDomain;
   rangeLabel: string;
+  sessionLabel: string;
   generatedAt: number;
   observationCount: number;
   averageQuality: number | null;
@@ -185,6 +188,14 @@ type SessionReport = {
   description: string;
   notes: string[];
   entries: SurfObservation[];
+};
+
+type ReportSessionOption = {
+  id: string;
+  label: string;
+  start: number;
+  end: number;
+  count: number;
 };
 
 type WaveQualityProjection = {
@@ -319,6 +330,9 @@ const settingsStorageKey = "sill-surf-forecast-settings-v1";
 const reviewRangeStorageKey = "sill-surf-review-range-v1";
 const sampleInterval = 15 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
+const hourMs = 60 * 60 * 1000;
+const reportSessionGapMs = 3 * hourMs;
+const reportContextMs = hourMs;
 const observationLearningHours = 365 * 24;
 const platformSetupChangeAt = new Date("2026-08-06T00:00:00+02:00").getTime();
 const defaultForecastSettings: ForecastSettings = {
@@ -949,22 +963,57 @@ function sessionReportDescription(
   return `${observationCount} Wellenmeisterwerte zeigen ${quality} Bedingungen. ${delta}`;
 }
 
+function buildReportSessions(observations: SurfObservation[]): ReportSessionOption[] {
+  const sorted = observations
+    .filter(isRealObservation)
+    .sort((a, b) => a.observedAt - b.observedAt);
+  const groups: SurfObservation[][] = [];
+  let current: SurfObservation[] = [];
+
+  for (const observation of sorted) {
+    const previous = current[current.length - 1];
+    if (previous && observation.observedAt - previous.observedAt > reportSessionGapMs) {
+      groups.push(current);
+      current = [];
+    }
+    current.push(observation);
+  }
+
+  if (current.length) groups.push(current);
+
+  return groups
+    .map((group) => {
+      const start = group[0].observedAt;
+      const end = group[group.length - 1].observedAt;
+      return {
+        id: `${start}-${end}-${group.length}`,
+        label: `${formatDate(start)} - ${formatTime(end)} · ${group.length} Werte`,
+        start,
+        end,
+        count: group.length,
+      };
+    })
+    .sort((a, b) => b.start - a.start);
+}
+
 function buildSessionReport(
   observations: SurfObservation[],
   history: HistoryPoint[],
-  timeDomain: TimeDomain,
+  reportDomain: TimeDomain,
+  sessionDomain = reportDomain,
+  sessionLabel = "Manueller Zeitraum",
 ): SessionReport {
   const entries = sortSurfObservations(
     observations.filter(
       (observation) =>
-        observation.observedAt >= timeDomain.min &&
-        observation.observedAt <= timeDomain.max &&
+        observation.observedAt >= sessionDomain.min &&
+        observation.observedAt <= sessionDomain.max &&
         isRealObservation(observation),
     ),
   );
   const ascendingEntries = [...entries].reverse();
   const visibleHistory = history.filter(
-    (point) => point.t >= timeDomain.min && point.t <= timeDomain.max,
+    (point) => point.t >= reportDomain.min && point.t <= reportDomain.max,
   );
   const observationFeatures = entries.map(observationDataFeatures);
   const trimValues = numericValues(entries.map((entry) => entry.trimCm));
@@ -1001,7 +1050,10 @@ function buildSessionReport(
     .slice(0, 3);
 
   return {
-    rangeLabel: `${formatDate(timeDomain.min)} - ${formatDate(timeDomain.max)}`,
+    timeDomain: reportDomain,
+    sessionDomain,
+    rangeLabel: `${formatDate(reportDomain.min)} - ${formatDate(reportDomain.max)}`,
+    sessionLabel,
     generatedAt: Date.now(),
     observationCount: entries.length,
     averageQuality,
@@ -1914,6 +1966,10 @@ export default function Home() {
   const [timeZoom, setTimeZoom] = useState<TimeZoom>(defaultTimeZoom);
   const [timeDrag, setTimeDrag] = useState<TimeDrag | null>(null);
   const [chartHover, setChartHover] = useState(false);
+  const [reportMode, setReportMode] = useState<"session" | "custom">("session");
+  const [reportSessionId, setReportSessionId] = useState("latest");
+  const [reportCustomFrom, setReportCustomFrom] = useState("");
+  const [reportCustomTo, setReportCustomTo] = useState("");
   const chartNavigatorRef = useRef<HTMLDivElement | null>(null);
   const chartInteractionRef = useRef({
     canMoveTimeAxis: false,
@@ -2369,9 +2425,56 @@ export default function Home() {
   const visibleHistoryPoints = forecastHistory.filter(
     (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
   );
+  const reportSessions = useMemo(
+    () => buildReportSessions(observations),
+    [observations],
+  );
+  const selectedReportSession =
+    reportSessions.find((session) => session.id === reportSessionId) ??
+    reportSessions[0] ??
+    null;
+  const customReportFrom =
+    parseDateTimeInput(reportCustomFrom || formatDateTimeInput(chartTimeDomain.min)) ??
+    chartTimeDomain.min;
+  const customReportTo =
+    parseDateTimeInput(reportCustomTo || formatDateTimeInput(chartTimeDomain.max)) ??
+    chartTimeDomain.max;
+  const reportSelection = useMemo(() => {
+    const customReportDomain = {
+      min: Math.min(customReportFrom, customReportTo),
+      max: Math.max(customReportFrom, customReportTo),
+    };
+
+    if (reportMode === "session" && selectedReportSession) {
+      return {
+        timeDomain: {
+          min: selectedReportSession.start - reportContextMs,
+          max: selectedReportSession.end + reportContextMs,
+        },
+        sessionDomain: {
+          min: selectedReportSession.start,
+          max: selectedReportSession.end,
+        },
+        label: selectedReportSession.label,
+      };
+    }
+
+    return {
+      timeDomain: customReportDomain,
+      sessionDomain: customReportDomain,
+      label: "Manueller Zeitraum",
+    };
+  }, [customReportFrom, customReportTo, reportMode, selectedReportSession]);
   const sessionReport = useMemo(
-    () => buildSessionReport(observations, forecastHistory, chartTimeDomain),
-    [observations, forecastHistory, chartTimeDomain],
+    () =>
+      buildSessionReport(
+        observations,
+        forecastHistory,
+        reportSelection.timeDomain,
+        reportSelection.sessionDomain,
+        reportSelection.label,
+      ),
+    [observations, forecastHistory, reportSelection],
   );
   const waveLagKroessbach = Math.max(
     0,
@@ -2791,7 +2894,20 @@ export default function Home() {
         targets={experienceTargets}
       />
 
-      <SessionReportSection report={sessionReport} />
+      <SessionReportSection
+        report={sessionReport}
+        sessions={reportSessions}
+        mode={reportMode}
+        selectedSessionId={selectedReportSession?.id ?? "latest"}
+        customFrom={reportCustomFrom || formatDateTimeInput(chartTimeDomain.min)}
+        customTo={reportCustomTo || formatDateTimeInput(chartTimeDomain.max)}
+        history={forecastHistory}
+        delta={deltaLine}
+        onModeChange={setReportMode}
+        onSessionChange={setReportSessionId}
+        onCustomFromChange={setReportCustomFrom}
+        onCustomToChange={setReportCustomTo}
+      />
 
       <section className="forecast-section">
         <div className="section-heading forecast-heading">
@@ -3026,14 +3142,40 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.67.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.68.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
   );
 }
 
-function SessionReportSection({ report }: { report: SessionReport }) {
+function SessionReportSection({
+  report,
+  sessions,
+  mode,
+  selectedSessionId,
+  customFrom,
+  customTo,
+  history,
+  delta,
+  onModeChange,
+  onSessionChange,
+  onCustomFromChange,
+  onCustomToChange,
+}: {
+  report: SessionReport;
+  sessions: ReportSessionOption[];
+  mode: "session" | "custom";
+  selectedSessionId: string;
+  customFrom: string;
+  customTo: string;
+  history: HistoryPoint[];
+  delta: { t: number; value: number | null }[];
+  onModeChange: Dispatch<SetStateAction<"session" | "custom">>;
+  onSessionChange: Dispatch<SetStateAction<string>>;
+  onCustomFromChange: Dispatch<SetStateAction<string>>;
+  onCustomToChange: Dispatch<SetStateAction<string>>;
+}) {
   const trimRange =
     report.trimMin === null || report.trimMax === null
       ? "n/a"
@@ -3058,16 +3200,65 @@ function SessionReportSection({ report }: { report: SessionReport }) {
         </div>
       </div>
 
+      <div className="report-controls" aria-label="Report Zeitraum einstellen">
+        <label>
+          <span>Report</span>
+          <select
+            value={mode}
+            onChange={(event) => onModeChange(event.target.value as "session" | "custom")}
+          >
+            <option value="session">automatisch aus Sessionwerten</option>
+            <option value="custom">eigener Zeitraum</option>
+          </select>
+        </label>
+        {mode === "session" ? (
+          <label>
+            <span>Session</span>
+            <select
+              value={selectedSessionId}
+              onChange={(event) => onSessionChange(event.target.value)}
+              disabled={!sessions.length}
+            >
+              {sessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {session.label}
+                </option>
+              ))}
+              {!sessions.length ? <option>keine Sessionwerte</option> : null}
+            </select>
+          </label>
+        ) : (
+          <>
+            <label>
+              <span>Von</span>
+              <input
+                type="datetime-local"
+                value={customFrom}
+                onChange={(event) => onCustomFromChange(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Bis</span>
+              <input
+                type="datetime-local"
+                value={customTo}
+                onChange={(event) => onCustomToChange(event.target.value)}
+              />
+            </label>
+          </>
+        )}
+      </div>
+
       <div className="report-print-header">
         <strong>SILLVIA Forecast · Sessionreport</strong>
-        <span>{report.rangeLabel}</span>
+        <span>{report.sessionLabel}</span>
       </div>
 
       <div className="report-summary">
         <p>{report.description}</p>
         <dl>
           <div>
-            <dt>Zeitraum</dt>
+            <dt>Reportfenster</dt>
             <dd>{report.rangeLabel}</dd>
           </div>
           <div>
@@ -3111,6 +3302,8 @@ function SessionReportSection({ report }: { report: SessionReport }) {
           </div>
         </dl>
       </div>
+
+      <SessionReportCharts report={report} history={history} delta={delta} />
 
       <div className="report-grid">
         <div>
@@ -3162,6 +3355,170 @@ function SessionReportSection({ report }: { report: SessionReport }) {
         </aside>
       </div>
     </section>
+  );
+}
+
+function SessionReportCharts({
+  report,
+  history,
+  delta,
+}: {
+  report: SessionReport;
+  history: HistoryPoint[];
+  delta: { t: number; value: number | null }[];
+}) {
+  const inReport = (point: { t: number }) =>
+    point.t >= report.timeDomain.min && point.t <= report.timeDomain.max;
+  const upstream = history
+    .filter(inReport)
+    .map((point) => ({
+      t: point.t,
+      value:
+        point.kroessbach === null && point.puig === null
+          ? null
+          : (point.kroessbach ?? 0) + (point.puig ?? 0),
+    }));
+  const reichenau = history
+    .filter(inReport)
+    .map((point) => ({ t: point.t, value: point.reichenau }));
+  const level = history
+    .filter(inReport)
+    .map((point) => ({ t: point.t, value: point.reichenauLevel }));
+  const deltaPoints = delta.filter(inReport);
+
+  return (
+    <div className="report-chart-stack">
+      <ReportMiniChart
+        title="Abfluss"
+        unit="m³/s"
+        timeDomain={report.timeDomain}
+        sessionDomain={report.sessionDomain}
+        series={[
+          { label: "Zufluss K+P", className: "upstream", points: upstream },
+          { label: "Reichenau", className: "reichenau", points: reichenau },
+        ]}
+      />
+      <ReportMiniChart
+        title="Pegel Reichenau"
+        unit="cm"
+        timeDomain={report.timeDomain}
+        sessionDomain={report.sessionDomain}
+        series={[{ label: "Pegel", className: "level", points: level }]}
+      />
+      <ReportMiniChart
+        title="Delta Welle"
+        unit="m³/s"
+        timeDomain={report.timeDomain}
+        sessionDomain={report.sessionDomain}
+        zeroLine
+        series={[{ label: "Delta", className: "delta", points: deltaPoints }]}
+      />
+    </div>
+  );
+}
+
+function ReportMiniChart({
+  title,
+  unit,
+  timeDomain,
+  sessionDomain,
+  series,
+  zeroLine = false,
+}: {
+  title: string;
+  unit: string;
+  timeDomain: TimeDomain;
+  sessionDomain: TimeDomain;
+  series: { label: string; className: string; points: { t: number; value: number | null }[] }[];
+  zeroLine?: boolean;
+}) {
+  const width = 760;
+  const height = 112;
+  const plot = { left: 46, top: 20, right: 16, bottom: 24 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const allValues = series
+    .flatMap((item) => item.points.map((point) => point.value))
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  const rawMin = zeroLine ? Math.min(0, ...allValues) : Math.min(...allValues, 0);
+  const rawMax = zeroLine ? Math.max(0, ...allValues) : Math.max(...allValues, 1);
+  const range = Math.max(1, rawMax - rawMin);
+  const minValue = rawMin - range * 0.12;
+  const maxValue = rawMax + range * 0.12;
+  const x = (time: number) =>
+    plot.left +
+    ((time - timeDomain.min) / Math.max(1, timeDomain.max - timeDomain.min)) *
+      plotWidth;
+  const y = (value: number) =>
+    plot.top +
+    plotHeight -
+    ((value - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
+  const ticks = [minValue, (minValue + maxValue) / 2, maxValue];
+  const sessionStart = clamp(x(sessionDomain.min), plot.left, width - plot.right);
+  const sessionEnd = clamp(x(sessionDomain.max), plot.left, width - plot.right);
+
+  return (
+    <article className="report-mini-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <title>{title} im Reportzeitraum</title>
+        <rect
+          className="report-session-window"
+          x={sessionStart}
+          y={plot.top}
+          width={Math.max(1, sessionEnd - sessionStart)}
+          height={plotHeight}
+        />
+        <text className="report-chart-title" x={plot.left} y={13}>
+          {title}
+        </text>
+        {ticks.map((tick) => (
+          <g key={tick}>
+            <line
+              className="grid-line"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={y(tick)}
+              y2={y(tick)}
+            />
+            <text x={4} y={y(tick) + 3}>
+              {formatNumber(tick, Math.abs(tick) >= 100 ? 0 : 1)}
+            </text>
+          </g>
+        ))}
+        {zeroLine && minValue < 0 && maxValue > 0 ? (
+          <line
+            className="zero-line"
+            x1={plot.left}
+            x2={width - plot.right}
+            y1={y(0)}
+            y2={y(0)}
+          />
+        ) : null}
+        {series.map((item) => (
+          <path
+            key={item.label}
+            className={`line ${item.className}`}
+            d={linePath(item.points, x, y)}
+          />
+        ))}
+        <text x={plot.left} y={height - 5}>
+          {formatTime(timeDomain.min)}
+        </text>
+        <text x={width - plot.right - 42} y={height - 5}>
+          {formatTime(timeDomain.max)}
+        </text>
+        <text className="report-chart-unit" x={width - plot.right - 46} y={13}>
+          {unit}
+        </text>
+      </svg>
+      <div className="report-mini-legend">
+        {series.map((item) => (
+          <span key={item.label} className={item.className}>
+            {item.label}
+          </span>
+        ))}
+      </div>
+    </article>
   );
 }
 

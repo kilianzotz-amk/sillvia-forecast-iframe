@@ -527,6 +527,35 @@ h3 {
   padding: 10px 14px;
 }
 
+.report-controls {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.report-controls label {
+  display: grid;
+  gap: 5px;
+}
+
+.report-controls span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.report-controls select,
+.report-controls input {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 750;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
 .report-print-header {
   align-items: center;
   border-bottom: 1px solid var(--line);
@@ -639,6 +668,68 @@ h3 {
   font-size: 0.84rem;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.report-chart-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.report-mini-chart {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.report-mini-chart svg {
+  display: block;
+  width: 100%;
+}
+
+.report-chart-title,
+.report-chart-unit {
+  fill: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.report-session-window {
+  fill: rgba(33, 132, 132, 0.08);
+}
+
+.report-mini-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-left: 38px;
+}
+
+.report-mini-legend span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.report-mini-legend span::before {
+  border-radius: 999px;
+  content: "";
+  display: inline-block;
+  height: 7px;
+  margin-right: 5px;
+  width: 18px;
+}
+
+.report-mini-legend .upstream::before {
+  background: var(--teal);
+}
+
+.report-mini-legend .reichenau::before,
+.report-mini-legend .level::before {
+  background: var(--coral);
+}
+
+.report-mini-legend .delta::before {
+  background: var(--steel);
 }
 
 .flow-section,
@@ -1594,6 +1685,10 @@ h3 {
   stroke: var(--coral);
 }
 
+.line.level {
+  stroke: var(--coral);
+}
+
 .line.forecast {
   stroke: var(--gold);
   stroke-dasharray: 8 8;
@@ -2261,6 +2356,7 @@ h3 {
   .setup-inline-form,
   .setup-log-list,
   .setup-log-list dl,
+  .report-controls,
   .report-summary dl,
   .report-grid,
   .forecast-layout,
@@ -2376,46 +2472,52 @@ h3 {
 
 @media print {
   @page {
-    margin: 10mm;
+    margin: 8mm;
     size: A4 portrait;
   }
 
+  html,
   body {
     background: #fff;
+    height: auto;
   }
 
-  body * {
-    visibility: hidden;
+  .dashboard-shell {
+    display: block;
+    max-width: none;
+    padding: 0;
+    width: 100%;
   }
 
-  .session-report-section,
-  .session-report-section * {
-    visibility: visible;
+  .dashboard-shell > :not(.session-report-section) {
+    display: none !important;
   }
 
   .session-report-section {
     border: 0;
     border-radius: 0;
-    gap: 8px;
-    left: 0;
+    box-shadow: none;
+    gap: 5px;
     padding: 0;
-    position: absolute;
-    top: 0;
+    page-break-after: avoid;
+    page-break-inside: avoid;
+    position: static;
     width: 100%;
   }
 
   .report-actions,
+  .report-controls,
   .report-heading p,
   .report-heading h2 {
     display: none;
   }
 
   .report-print-header {
-    padding-bottom: 6px;
+    padding-bottom: 4px;
   }
 
   .report-print-header strong {
-    font-size: 14pt;
+    font-size: 13pt;
   }
 
   .report-print-header span,
@@ -2428,39 +2530,62 @@ h3 {
   }
 
   .report-summary p {
-    font-size: 10pt;
+    font-size: 9pt;
+    line-height: 1.25;
   }
 
   .report-summary dl {
-    gap: 5px;
+    gap: 4px;
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .report-summary dd {
-    font-size: 9pt;
+    font-size: 8.4pt;
+    margin-top: 2px;
+  }
+
+  .report-summary dl div {
+    padding-left: 6px;
+  }
+
+  .report-chart-stack {
+    gap: 3px;
+  }
+
+  .report-mini-chart {
+    border-radius: 0;
+    padding: 3px 5px 1px;
+  }
+
+  .report-mini-chart svg {
+    height: 25mm;
+  }
+
+  .report-mini-legend {
+    display: none;
   }
 
   .report-grid {
-    gap: 8px;
-    grid-template-columns: minmax(0, 1fr) 58mm;
+    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) 50mm;
   }
 
   .report-grid h3 {
-    font-size: 10pt;
-    margin-bottom: 4px;
+    font-size: 8.8pt;
+    margin-bottom: 2px;
   }
 
   .report-grid table {
-    font-size: 7.6pt;
+    font-size: 6.8pt;
   }
 
   .report-grid th,
   .report-grid td {
-    padding: 4px;
+    padding: 2.5px 3px;
   }
 
   .report-grid aside {
     border-radius: 0;
-    padding: 7px;
+    padding: 5px;
   }
 }
