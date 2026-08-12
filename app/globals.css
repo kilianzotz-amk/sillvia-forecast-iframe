@@ -1680,9 +1680,9 @@ h3 {
 }
 
 .forecast-main .observation-section {
-  background: transparent;
-  border: 0;
-  padding: 2px 0 0;
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 16px;
 }
 
 .chart-time-control {

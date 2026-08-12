@@ -3266,6 +3266,22 @@ export default function Home() {
                 });
               }}
             />
+            <ObservationSection
+              observations={observations}
+              observationForm={observationForm}
+              setObservationForm={setObservationForm}
+              submitObservation={submitObservation}
+              observationSaving={observationSaving}
+              editingObservationId={editingObservationId}
+              observationEditForm={observationEditForm}
+              setObservationEditForm={setObservationEditForm}
+              submitObservationEdit={submitObservationEdit}
+              cancelObservationEdit={cancelObservationEdit}
+              observationMessage={observationMessage}
+              editObservation={editObservation}
+              deleteObservation={deleteObservation}
+              deletingObservationId={deletingObservationId}
+            />
             <div
               className="runtime-inline-controls"
               aria-label="Forecast Laufzeiten"
@@ -3387,22 +3403,6 @@ export default function Home() {
                   timeDomain={chartTimeDomain}
                   markerTime={waveTime}
                 />
-                <ObservationSection
-                  observations={observations}
-                  observationForm={observationForm}
-                  setObservationForm={setObservationForm}
-                  submitObservation={submitObservation}
-                  observationSaving={observationSaving}
-                  editingObservationId={editingObservationId}
-                  observationEditForm={observationEditForm}
-                  setObservationEditForm={setObservationEditForm}
-                  submitObservationEdit={submitObservationEdit}
-                  cancelObservationEdit={cancelObservationEdit}
-                  observationMessage={observationMessage}
-                  editObservation={editObservation}
-                  deleteObservation={deleteObservation}
-                  deletingObservationId={deletingObservationId}
-                />
                 <RainfallSection
                   weather={weatherPayload}
                   visiblePoints={visibleWeatherPoints}
@@ -3491,7 +3491,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.78.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.79.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
