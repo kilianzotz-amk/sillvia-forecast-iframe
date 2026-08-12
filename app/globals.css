@@ -773,6 +773,31 @@ h3 {
   width: 100%;
 }
 
+.report-mini-chart .line {
+  fill: none;
+  opacity: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.1;
+}
+
+.report-mini-chart .line.upstream {
+  stroke: var(--teal);
+}
+
+.report-mini-chart .line.reichenau,
+.report-mini-chart .line.level {
+  stroke: var(--coral);
+}
+
+.report-mini-chart .line.delta {
+  stroke: #4f5d75;
+}
+
+.report-mini-chart .line.trim {
+  stroke: #6d5bd0;
+}
+
 .report-chart-title,
 .report-chart-unit {
   fill: var(--ink);

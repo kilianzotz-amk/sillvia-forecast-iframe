@@ -3470,7 +3470,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.76.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.77.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
@@ -3695,7 +3695,26 @@ function SessionReportCharts({
 }) {
   const inReport = (point: { t: number }) =>
     point.t >= report.timeDomain.min && point.t <= report.timeDomain.max;
-  const upstream = history
+  const mergeReportSeries = (
+    historyPoints: { t: number; value: number | null }[],
+    entryPoints: { t: number; value: number | null }[],
+  ) => {
+    const byTime = new Map<number, number | null>();
+
+    for (const point of historyPoints) {
+      byTime.set(point.t, point.value);
+    }
+    for (const point of entryPoints) {
+      if (point.value !== null && Number.isFinite(point.value)) {
+        byTime.set(point.t, point.value);
+      }
+    }
+
+    return [...byTime.entries()]
+      .map(([t, value]) => ({ t, value }))
+      .sort((a, b) => a.t - b.t);
+  };
+  const upstreamFromHistory = history
     .filter(inReport)
     .map((point) => ({
       t: point.t,
@@ -3704,13 +3723,38 @@ function SessionReportCharts({
           ? null
           : (point.kroessbach ?? 0) + (point.puig ?? 0),
     }));
-  const reichenau = history
+  const upstreamFromEntries = report.entries.map((entry) => {
+    const features = observationDataFeatures(entry);
+    return {
+      t: entry.observedAt,
+      value: features.upstream,
+    };
+  });
+  const upstream = mergeReportSeries(upstreamFromHistory, upstreamFromEntries);
+  const reichenauFromHistory = history
     .filter(inReport)
     .map((point) => ({ t: point.t, value: point.reichenau }));
-  const level = history
+  const reichenauFromEntries = report.entries.map((entry) => ({
+    t: entry.observedAt,
+    value: entry.reichenauDischarge,
+  }));
+  const reichenau = mergeReportSeries(reichenauFromHistory, reichenauFromEntries);
+  const levelFromHistory = history
     .filter(inReport)
     .map((point) => ({ t: point.t, value: point.reichenauLevel }));
-  const deltaPoints = delta.filter(inReport);
+  const levelFromEntries = report.entries.map((entry) => ({
+    t: entry.observedAt,
+    value: entry.reichenauLevel,
+  }));
+  const level = mergeReportSeries(levelFromHistory, levelFromEntries);
+  const deltaFromEntries = report.entries.map((entry) => {
+    const features = observationDataFeatures(entry);
+    return {
+      t: entry.observedAt,
+      value: features.delta,
+    };
+  });
+  const deltaPoints = mergeReportSeries(delta.filter(inReport), deltaFromEntries);
   const flowMarkers = report.entries.map((entry) => ({
     id: entry.id,
     t: entry.observedAt,
