@@ -300,7 +300,8 @@ async function fetchRiverAppGaerberbach() {
     river: "Sill",
     role: "Pegel nahe Welle · RiverApp lokaler Mitwirkender",
     altitude: null,
-    waveRuntime: "Pegel nahe der Welle; dient als Zwischen-Signal fuer Laufzeit und Trend.",
+    waveRuntime:
+      "Pegel-Reaktionssignal: Messpunkt ca. 3,6 km flussauf der Welle, angenommene Laufzeit bis zur Welle ca. 10 min.",
     latlng: dataset.latlng,
     water: {
       value: dataset.levelCm,

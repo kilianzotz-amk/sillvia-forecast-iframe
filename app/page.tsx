@@ -543,7 +543,7 @@ const fallbackPayload: HydroPayload = {
       role: "Pegel nahe Welle · RiverApp lokaler Mitwirkender",
       altitude: null,
       waveRuntime:
-        "Pegel nahe der Welle; dient als Zwischen-Signal fuer Laufzeit und Trend.",
+        "Pegel-Reaktionssignal: Messpunkt ca. 3,6 km flussauf der Welle, angenommene Laufzeit bis zur Welle ca. 10 min.",
       latlng: [47.2316663811399, 11.3901517974556],
       water: {
         value: 134.5,
@@ -3183,7 +3183,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.70.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.71.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
@@ -4788,6 +4788,22 @@ function RuntimeCorrelationPanel({
             {puigWaveMinutes} min vorher sichtbar.
           </small>
         </article>
+        <article>
+          <span>Gärberbach → Welle</span>
+          <strong>3,6 km · ca. 10 min</strong>
+          <small>
+            Pegel-Reaktionszeit: ein Anstieg am Gärberbach sollte grob 10 min
+            spaeter an der Welle sichtbar werden.
+          </small>
+        </article>
+        <article>
+          <span>Welle → Reichenau</span>
+          <strong>3,1 km · ca. 10 min</strong>
+          <small>
+            Reichenau liegt flussab der Welle; die bisherige Wellen-Korrektur
+            bleibt damit plausibel.
+          </small>
+        </article>
         <article className="runtime-reference-note">
           <span>Einordnung</span>
           <strong>Die aktuellen Regler liegen im offiziellen Laufzeitbereich.</strong>
@@ -4796,8 +4812,8 @@ function RuntimeCorrelationPanel({
             60-120 min bis Reichenau. Weil die Welle ca. 10 min vor dem Pegel liegt,
             wird die Wirkung an der Welle entsprechend frueher angesetzt. Kraftwerke
             und seitliche Zuflüsse koennen die reale Reaktion trotzdem verschieben.
-            Der Gärberbach-Pegel kommt aus RiverApp und liegt naeher an der Welle;
-            er wird als Pegel-/Trend-Referenz genutzt, nicht als Abflussmessung.
+            Der Gärberbach-Pegel kommt aus RiverApp und wird als Pegel-/Trend-
+            Referenz genutzt, nicht als Abflussmessung.
           </small>
         </article>
       </div>
