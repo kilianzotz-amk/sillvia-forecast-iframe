@@ -169,6 +169,24 @@ type DataQualitySignal = {
   note: string;
 };
 
+type SessionReport = {
+  rangeLabel: string;
+  generatedAt: number;
+  observationCount: number;
+  averageQuality: number | null;
+  bestObservation: SurfObservation | null;
+  averageTrim: number | null;
+  trimMin: number | null;
+  trimMax: number | null;
+  averageUpstream: number | null;
+  averageReichenau: number | null;
+  averageLevel: number | null;
+  averageDelta: number | null;
+  description: string;
+  notes: string[];
+  entries: SurfObservation[];
+};
+
 type WaveQualityProjection = {
   time: number;
   delta: number;
@@ -890,6 +908,115 @@ function observationDataFeatures(observation: SurfObservation) {
 function average(values: number[]) {
   if (!values.length) return null;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function numericValues(values: Array<number | null>) {
+  return values.filter((value): value is number => value !== null && Number.isFinite(value));
+}
+
+function compactText(value: string | null, maxLength = 95) {
+  if (!value) return "";
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}…`
+    : normalized;
+}
+
+function sessionReportDescription(
+  averageQuality: number | null,
+  observationCount: number,
+  averageDelta: number | null,
+) {
+  if (!observationCount || averageQuality === null) {
+    return "Für diesen Zeitraum liegen noch keine Wellenmeisterwerte vor.";
+  }
+
+  const quality =
+    averageQuality >= 4
+      ? "überwiegend gute"
+      : averageQuality >= 3
+        ? "brauchbare bis gemischte"
+        : "eher schwierige";
+  const delta =
+    averageDelta === null
+      ? "Das Delta konnte nicht stabil bewertet werden."
+      : averageDelta >= 0.4
+        ? "Das Delta war im Mittel positiv."
+        : averageDelta <= -0.4
+          ? "Das Delta war im Mittel negativ."
+          : "Das Delta lag nahe am Nullbereich.";
+
+  return `${observationCount} Wellenmeisterwerte zeigen ${quality} Bedingungen. ${delta}`;
+}
+
+function buildSessionReport(
+  observations: SurfObservation[],
+  history: HistoryPoint[],
+  timeDomain: TimeDomain,
+): SessionReport {
+  const entries = sortSurfObservations(
+    observations.filter(
+      (observation) =>
+        observation.observedAt >= timeDomain.min &&
+        observation.observedAt <= timeDomain.max &&
+        isRealObservation(observation),
+    ),
+  );
+  const ascendingEntries = [...entries].reverse();
+  const visibleHistory = history.filter(
+    (point) => point.t >= timeDomain.min && point.t <= timeDomain.max,
+  );
+  const observationFeatures = entries.map(observationDataFeatures);
+  const trimValues = numericValues(entries.map((entry) => entry.trimCm));
+  const averageQuality = average(entries.map((entry) => entry.quality));
+  const averageUpstream =
+    average(numericValues(observationFeatures.map((feature) => feature.upstream))) ??
+    average(
+      visibleHistory
+        .map((point) =>
+          point.kroessbach === null && point.puig === null
+            ? null
+            : (point.kroessbach ?? 0) + (point.puig ?? 0),
+        )
+        .filter((value): value is number => value !== null),
+    );
+  const averageReichenau =
+    average(numericValues(entries.map((entry) => entry.reichenauDischarge))) ??
+    average(numericValues(visibleHistory.map((point) => point.reichenau)));
+  const averageLevel =
+    average(numericValues(entries.map((entry) => entry.reichenauLevel))) ??
+    average(numericValues(visibleHistory.map((point) => point.reichenauLevel)));
+  const averageDelta =
+    average(numericValues(observationFeatures.map((feature) => feature.delta))) ??
+    (averageReichenau !== null && averageUpstream !== null
+      ? averageReichenau - averageUpstream
+      : null);
+  const bestObservation = entries.reduce<SurfObservation | null>(
+    (best, entry) => (!best || entry.quality > best.quality ? entry : best),
+    null,
+  );
+  const notes = ascendingEntries
+    .map((entry) => compactText(entry.note))
+    .filter(Boolean)
+    .slice(0, 3);
+
+  return {
+    rangeLabel: `${formatDate(timeDomain.min)} - ${formatDate(timeDomain.max)}`,
+    generatedAt: Date.now(),
+    observationCount: entries.length,
+    averageQuality,
+    bestObservation,
+    averageTrim: average(trimValues),
+    trimMin: trimValues.length ? Math.min(...trimValues) : null,
+    trimMax: trimValues.length ? Math.max(...trimValues) : null,
+    averageUpstream,
+    averageReichenau,
+    averageLevel,
+    averageDelta,
+    description: sessionReportDescription(averageQuality, entries.length, averageDelta),
+    notes,
+    entries: ascendingEntries.slice(-8),
+  };
 }
 
 function percentile(values: number[], ratio: number) {
@@ -2242,6 +2369,10 @@ export default function Home() {
   const visibleHistoryPoints = forecastHistory.filter(
     (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
   );
+  const sessionReport = useMemo(
+    () => buildSessionReport(observations, forecastHistory, chartTimeDomain),
+    [observations, forecastHistory, chartTimeDomain],
+  );
   const waveLagKroessbach = Math.max(
     0,
     forecastSettings.lagKroessbach - forecastSettings.waveOffset,
@@ -2660,6 +2791,8 @@ export default function Home() {
         targets={experienceTargets}
       />
 
+      <SessionReportSection report={sessionReport} />
+
       <section className="forecast-section">
         <div className="section-heading forecast-heading">
           <div>
@@ -2893,10 +3026,142 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.66.260811 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.67.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
+  );
+}
+
+function SessionReportSection({ report }: { report: SessionReport }) {
+  const trimRange =
+    report.trimMin === null || report.trimMax === null
+      ? "n/a"
+      : `${formatNumber(report.trimMin, 1)}-${formatNumber(report.trimMax, 1)} cm`;
+  const bestLabel = report.bestObservation
+    ? `${formatQuality(report.bestObservation.quality)}/5 · ${formatTime(
+        report.bestObservation.observedAt,
+      )}`
+    : "n/a";
+
+  return (
+    <section className="session-report-section" aria-label="Sessionreport">
+      <div className="section-heading report-heading">
+        <div>
+          <p>Sessionreport</p>
+          <h2>Wellenverhältnisse kompakt</h2>
+        </div>
+        <div className="report-actions">
+          <button type="button" onClick={() => window.print()}>
+            PDF exportieren
+          </button>
+        </div>
+      </div>
+
+      <div className="report-print-header">
+        <strong>SILLVIA Forecast · Sessionreport</strong>
+        <span>{report.rangeLabel}</span>
+      </div>
+
+      <div className="report-summary">
+        <p>{report.description}</p>
+        <dl>
+          <div>
+            <dt>Zeitraum</dt>
+            <dd>{report.rangeLabel}</dd>
+          </div>
+          <div>
+            <dt>Wertungen</dt>
+            <dd>{report.observationCount}</dd>
+          </div>
+          <div>
+            <dt>Ø Welle</dt>
+            <dd>
+              {report.averageQuality === null
+                ? "n/a"
+                : `${formatQuality(report.averageQuality)}/5`}
+            </dd>
+          </div>
+          <div>
+            <dt>Beste Wertung</dt>
+            <dd>{bestLabel}</dd>
+          </div>
+          <div>
+            <dt>Trim</dt>
+            <dd>
+              {report.averageTrim === null
+                ? trimRange
+                : `${formatNumber(report.averageTrim, 1)} cm Ø · ${trimRange}`}
+            </dd>
+          </div>
+          <div>
+            <dt>Reichenau</dt>
+            <dd>
+              {formatNumber(report.averageReichenau, 2)} m³/s ·{" "}
+              {formatNumber(report.averageLevel, 1)} cm
+            </dd>
+          </div>
+          <div>
+            <dt>Zufluss K+P</dt>
+            <dd>{formatNumber(report.averageUpstream, 2)} m³/s</dd>
+          </div>
+          <div>
+            <dt>Ø Delta</dt>
+            <dd>{formatSignedNumber(report.averageDelta, 2)} m³/s</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div className="report-grid">
+        <div>
+          <h3>Wellenmeisterwerte</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Zeit</th>
+                <th>Welle</th>
+                <th>Trim</th>
+                <th>Reichenau</th>
+                <th>Notiz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.entries.slice(-6).map((entry) => (
+                <tr key={entry.id}>
+                  <td>{formatTime(entry.observedAt)}</td>
+                  <td>{formatQuality(entry.quality)}/5</td>
+                  <td>{formatTrimCm(entry.trimCm, entry.trim)}</td>
+                  <td>
+                    {formatNumber(entry.reichenauDischarge, 2)} m³/s ·{" "}
+                    {formatNumber(entry.reichenauLevel, 1)} cm
+                  </td>
+                  <td>{compactText(entry.note, 42) || "-"}</td>
+                </tr>
+              ))}
+              {!report.entries.length ? (
+                <tr>
+                  <td colSpan={5}>Keine Wellenmeisterwerte im gewählten Zeitraum.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        <aside>
+          <h3>Kurznotizen</h3>
+          {report.notes.length ? (
+            <ul>
+              {report.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>Keine Notizen im gewählten Zeitraum.</p>
+          )}
+          <small>Erstellt: {formatDate(report.generatedAt)}</small>
+        </aside>
+      </div>
+    </section>
   );
 }
 

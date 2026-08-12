@@ -185,6 +185,7 @@ h3 {
 
 .quality-section,
 .observation-section,
+.session-report-section,
 .spot-insight-section,
 .setup-section,
 .rain-section,
@@ -275,6 +276,10 @@ h3 {
 }
 
 .spot-insight-section {
+  order: 5;
+}
+
+.session-report-section {
   order: 5;
 }
 
@@ -503,9 +508,143 @@ h3 {
   margin: 3px 0 0;
 }
 
+.session-report-section {
+  display: grid;
+  gap: 14px;
+}
+
+.report-heading {
+  align-items: center;
+}
+
+.report-actions button {
+  background: var(--ink);
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 850;
+  padding: 10px 14px;
+}
+
+.report-print-header {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding-bottom: 10px;
+}
+
+.report-print-header strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.report-print-header span {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.report-summary {
+  display: grid;
+  gap: 12px;
+}
+
+.report-summary p {
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 750;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.report-summary dl {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.report-summary dl div {
+  border-left: 3px solid #dce7ea;
+  min-width: 0;
+  padding-left: 10px;
+}
+
+.report-summary dt,
+.report-grid th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.report-summary dd {
+  color: var(--ink);
+  font-size: 0.98rem;
+  font-weight: 900;
+  margin: 4px 0 0;
+}
+
+.report-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.report-grid h3 {
+  color: var(--ink);
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+.report-grid table {
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  width: 100%;
+}
+
+.report-grid th,
+.report-grid td {
+  border-bottom: 1px solid #e1eaed;
+  padding: 7px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.report-grid td {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.report-grid aside {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.report-grid ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.report-grid li,
+.report-grid p,
+.report-grid small {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .flow-section,
 .quality-section,
 .observation-section,
+.session-report-section,
 .spot-insight-section,
 .setup-section,
 .rain-section,
@@ -2122,6 +2261,8 @@ h3 {
   .setup-inline-form,
   .setup-log-list,
   .setup-log-list dl,
+  .report-summary dl,
+  .report-grid,
   .forecast-layout,
   .runtime-correlation-grid,
   .runtime-reference-grid,
@@ -2167,6 +2308,7 @@ h3 {
   .top-band,
   .quality-section,
   .observation-section,
+  .session-report-section,
   .spot-insight-section,
   .setup-section,
   .forecast-section,
@@ -2182,6 +2324,11 @@ h3 {
   .setup-heading,
   .archive-heading {
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .report-print-header {
+    align-items: flex-start;
     flex-direction: column;
   }
 
@@ -2224,5 +2371,96 @@ h3 {
   .quality-scale-track {
     height: 96px;
     width: 14px;
+  }
+}
+
+@media print {
+  @page {
+    margin: 10mm;
+    size: A4 portrait;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .session-report-section,
+  .session-report-section * {
+    visibility: visible;
+  }
+
+  .session-report-section {
+    border: 0;
+    border-radius: 0;
+    gap: 8px;
+    left: 0;
+    padding: 0;
+    position: absolute;
+    top: 0;
+    width: 100%;
+  }
+
+  .report-actions,
+  .report-heading p,
+  .report-heading h2 {
+    display: none;
+  }
+
+  .report-print-header {
+    padding-bottom: 6px;
+  }
+
+  .report-print-header strong {
+    font-size: 14pt;
+  }
+
+  .report-print-header span,
+  .report-summary dt,
+  .report-grid th,
+  .report-grid li,
+  .report-grid p,
+  .report-grid small {
+    font-size: 8pt;
+  }
+
+  .report-summary p {
+    font-size: 10pt;
+  }
+
+  .report-summary dl {
+    gap: 5px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .report-summary dd {
+    font-size: 9pt;
+  }
+
+  .report-grid {
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) 58mm;
+  }
+
+  .report-grid h3 {
+    font-size: 10pt;
+    margin-bottom: 4px;
+  }
+
+  .report-grid table {
+    font-size: 7.6pt;
+  }
+
+  .report-grid th,
+  .report-grid td {
+    padding: 4px;
+  }
+
+  .report-grid aside {
+    border-radius: 0;
+    padding: 7px;
   }
 }
