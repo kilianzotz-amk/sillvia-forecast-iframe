@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import {
   compactHistory,
+  gaerberbachStationId,
   type HistoryPoint,
   type HydroWaterBackfillPoint,
   type HydroPayload,
@@ -93,6 +94,17 @@ export async function storeHydroPayload(payload: HydroPayload) {
     writes += result.meta.changes ?? 0;
   }
 
+  if (payload.backfillPoints?.length) {
+    const stored = await storeHydroBackfillPoints(
+      payload.backfillPoints.map((point) => ({
+        ...point,
+        dischargeValue: null,
+        dischargeUnit: null,
+      })),
+    );
+    writes += stored.writes;
+  }
+
   return { collectedAt, writes };
 }
 
@@ -124,6 +136,7 @@ export async function getRecentHydroHistory(hours = 72) {
         kroessbachLevel: null,
         puigLevel: null,
         reichenauLevel: null,
+        gaerberbachLevel: null,
       } satisfies HistoryPoint);
 
     if (row.station_id === "202283") {
@@ -137,6 +150,9 @@ export async function getRecentHydroHistory(hours = 72) {
     if (row.station_id === "201624") {
       point.reichenau = row.discharge_value;
       point.reichenauLevel = row.water_value;
+    }
+    if (row.station_id === gaerberbachStationId) {
+      point.gaerberbachLevel = row.water_value;
     }
 
     pointsByTime.set(t, point);

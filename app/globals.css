@@ -1710,6 +1710,11 @@ h3 {
   stroke: #b77a18;
 }
 
+.line.gaerberbach {
+  stroke: #2d8f68;
+  stroke-dasharray: 4 5;
+}
+
 .line.upstream {
   opacity: 0.68;
   stroke: #5f8b63;
@@ -1919,6 +1924,16 @@ h3 {
 
 .chart-legend .puig::before {
   background: #b77a18;
+}
+
+.chart-legend .gaerberbach::before {
+  background: repeating-linear-gradient(
+    90deg,
+    #2d8f68,
+    #2d8f68 6px,
+    transparent 6px,
+    transparent 11px
+  );
 }
 
 .chart-legend .upstream::before {

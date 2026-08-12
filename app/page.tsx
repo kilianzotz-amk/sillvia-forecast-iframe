@@ -92,6 +92,7 @@ type HistoryPoint = {
   kroessbachLevel: number | null;
   puigLevel: number | null;
   reichenauLevel: number | null;
+  gaerberbachLevel: number | null;
 };
 
 type SurfObservation = {
@@ -321,7 +322,13 @@ type DeltaSeriesKey = "delta";
 
 type VolumeSeriesKey = "volume60";
 
-type LevelSeriesKey = "kroessbach" | "puig" | "reichenau" | "session" | "range";
+type LevelSeriesKey =
+  | "kroessbach"
+  | "puig"
+  | "gaerberbach"
+  | "reichenau"
+  | "session"
+  | "range";
 
 type RainSeriesKey =
   | "area"
@@ -332,7 +339,8 @@ type RainSeriesKey =
   | "brenner"
   | "patscherkofel";
 
-const stationOrder = ["202283", "201574", "201624"];
+const gaerberbachStationId = "riverapp-gaerberbach";
+const stationOrder = ["202283", "201574", "201624", gaerberbachStationId];
 const historyStorageKey = "sill-surf-forecast-history-v1";
 const settingsStorageKey = "sill-surf-forecast-settings-v1";
 const reviewRangeStorageKey = "sill-surf-review-range-v1";
@@ -525,6 +533,33 @@ const fallbackPayload: HydroPayload = {
         hhq: { value: 358, unit: "m3/s", dt: 492130800000 },
         nnq: { value: 0.561, unit: "m3/s", dt: 288313200000 },
         nqt: { value: 4, unit: "m3/s", dt: -504061200000 },
+      },
+    },
+    {
+      id: gaerberbachStationId,
+      shortName: "Gärberbach",
+      name: "Gärberbach",
+      river: "Sill",
+      role: "Pegel nahe Welle · RiverApp lokaler Mitwirkender",
+      altitude: null,
+      waveRuntime:
+        "Pegel nahe der Welle; dient als Zwischen-Signal fuer Laufzeit und Trend.",
+      latlng: [47.2316663811399, 11.3901517974556],
+      water: {
+        value: 134.5,
+        unit: "cm",
+        dt: 1785844800000,
+        classification: "RiverApp",
+      },
+      discharge: { value: null, unit: "m3/s", dt: null },
+      thresholds: {
+        hw1: { value: null, unit: "cm", dt: null },
+        hw30: { value: null, unit: "cm", dt: null },
+      },
+      statistics: {
+        hhq: { value: null, unit: "m3/s", dt: null },
+        nnq: { value: null, unit: "m3/s", dt: null },
+        nqt: { value: null, unit: "m3/s", dt: null },
       },
     },
   ],
@@ -1388,6 +1423,7 @@ function historyPointFromPayload(payload: HydroPayload): HistoryPoint | null {
     kroessbachLevel: valueOrNull(stations["202283"]?.water.value),
     puigLevel: valueOrNull(stations["201574"]?.water.value),
     reichenauLevel: valueOrNull(stations["201624"]?.water.value),
+    gaerberbachLevel: valueOrNull(stations[gaerberbachStationId]?.water.value),
   };
 
   if (
@@ -1396,7 +1432,8 @@ function historyPointFromPayload(payload: HydroPayload): HistoryPoint | null {
     point.reichenau === null &&
     point.kroessbachLevel === null &&
     point.puigLevel === null &&
-    point.reichenauLevel === null
+    point.reichenauLevel === null &&
+    point.gaerberbachLevel === null
   ) {
     return null;
   }
@@ -1418,6 +1455,7 @@ function readStoredHistory() {
         kroessbachLevel: valueOrNull(point.kroessbachLevel),
         puigLevel: valueOrNull(point.puigLevel),
         reichenauLevel: valueOrNull(point.reichenauLevel),
+        gaerberbachLevel: valueOrNull(point.gaerberbachLevel),
       }))
       .filter((point) => Number.isFinite(point.t));
   } catch {
@@ -3145,8 +3183,8 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.69.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
-        Austria. Messstellen: 202283, 201574, 201624.
+        Version 0.70.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
   );
@@ -4758,6 +4796,8 @@ function RuntimeCorrelationPanel({
             60-120 min bis Reichenau. Weil die Welle ca. 10 min vor dem Pegel liegt,
             wird die Wirkung an der Welle entsprechend frueher angesetzt. Kraftwerke
             und seitliche Zuflüsse koennen die reale Reaktion trotzdem verschieben.
+            Der Gärberbach-Pegel kommt aus RiverApp und liegt naeher an der Welle;
+            er wird als Pegel-/Trend-Referenz genutzt, nicht als Abflussmessung.
           </small>
         </article>
       </div>
@@ -5648,6 +5688,7 @@ function SurfLevelChart({
   const [visible, setVisible] = useState<Record<LevelSeriesKey, boolean>>({
     kroessbach: true,
     puig: true,
+    gaerberbach: true,
     reichenau: true,
     session: true,
     range: true,
@@ -5662,6 +5703,10 @@ function SurfLevelChart({
     t: point.t,
     value: point.puigLevel,
   }));
+  const gaerberbachLevel = history.map((point) => ({
+    t: point.t,
+    value: point.gaerberbachLevel,
+  }));
   const reichenauLevel = history.map((point) => ({
     t: point.t,
     value: point.reichenauLevel,
@@ -5670,6 +5715,7 @@ function SurfLevelChart({
     point.t >= timeDomain.min && point.t <= timeDomain.max;
   const visibleKroessbachLevel = kroessbachLevel.filter(inTimeDomain);
   const visiblePuigLevel = puigLevel.filter(inTimeDomain);
+  const visibleGaerberbachLevel = gaerberbachLevel.filter(inTimeDomain);
   const visibleReichenauLevel = reichenauLevel.filter(inTimeDomain);
   const visibleSessionPoints = observations
     .map((observation) => ({
@@ -5689,6 +5735,7 @@ function SurfLevelChart({
   const series = [
     ...(visible.kroessbach ? visibleKroessbachLevel : []),
     ...(visible.puig ? visiblePuigLevel : []),
+    ...(visible.gaerberbach ? visibleGaerberbachLevel : []),
     ...(visible.reichenau ? visibleReichenauLevel : []),
     ...(visible.session ? visibleSessionPoints : []),
   ];
@@ -5793,6 +5840,12 @@ function SurfLevelChart({
         {visible.puig ? (
           <path className="line puig" d={linePath(visiblePuigLevel, x, y)} />
         ) : null}
+        {visible.gaerberbach ? (
+          <path
+            className="line gaerberbach"
+            d={linePath(visibleGaerberbachLevel, x, y)}
+          />
+        ) : null}
         {visible.reichenau ? (
           <path
             className="line reichenau"
@@ -5842,6 +5895,9 @@ function SurfLevelChart({
         </LegendToggle>
         <LegendToggle name="puig" active={visible.puig} onClick={() => toggle("puig")}>
           Puig Pegel
+        </LegendToggle>
+        <LegendToggle name="gaerberbach" active={visible.gaerberbach} onClick={() => toggle("gaerberbach")}>
+          Gärberbach Pegel
         </LegendToggle>
         <LegendToggle name="reichenau" active={visible.reichenau} onClick={() => toggle("reichenau")}>
           Reichenau Pegel
