@@ -887,7 +887,7 @@ function waveQualityScore(
   const sortedMax = Math.max(surfMin, surfMax);
   const sortedLevelMin = Math.min(levelMin, levelMax);
   const sortedLevelMax = Math.max(levelMin, levelMax);
-  const deltaScore = clamp(55 + delta * 14);
+  const deltaScore = clamp(50 + delta * 14);
   const upstreamPressure =
     sortedMax <= sortedMin
       ? upstream / Math.max(1, sortedMax)
@@ -3183,7 +3183,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.71.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.72.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
