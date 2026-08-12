@@ -312,7 +312,7 @@ type SpotInsightStats = {
   targetCorrelationCount: number;
 };
 
-type ReviewPreset = "12h" | "24h" | "week" | "month" | "year" | "all" | "custom";
+type ReviewPreset = "24h" | "week" | "month" | "year" | "all" | "custom";
 
 type ReviewRange = {
   preset: ReviewPreset;
@@ -342,7 +342,7 @@ type FlowSeriesKey =
 
 type DeltaSeriesKey = "delta";
 
-type VolumeSeriesKey = "volume60";
+type VolumeWindowMinutes = 30 | 60 | 120;
 
 type LevelSeriesKey =
   | "kroessbach"
@@ -462,7 +462,6 @@ const defaultWeatherPayload: WeatherPayload = {
   ],
 };
 const reviewPresets: { id: ReviewPreset; label: string }[] = [
-  { id: "12h", label: "12 h" },
   { id: "24h", label: "24 h" },
   { id: "week", label: "Letzte Woche" },
   { id: "month", label: "Letzter Monat" },
@@ -1770,9 +1769,6 @@ function reviewRangeToDomain(
   const forecastHorizon = 6 * 60 * 60 * 1000;
   const max = Math.max(newest + sampleInterval, newest + forecastHorizon);
 
-  if (range.preset === "12h") {
-    return { min: newest - 12 * 60 * 60 * 1000, max };
-  }
   if (range.preset === "week") {
     return { min: newest - 7 * dayMs, max };
   }
@@ -1797,7 +1793,6 @@ function reviewRangeToDomain(
 }
 
 function reviewRangeHours(range: ReviewRange) {
-  if (range.preset === "12h") return 12;
   if (range.preset === "week") return 7 * 24;
   if (range.preset === "month") return 30 * 24;
   if (range.preset === "year") return 365 * 24;
@@ -1908,7 +1903,9 @@ function volumeBalanceSummary(
     balance30,
     balance60,
     balance120,
+    rolling30: rollingVolumeBalanceSeries(points, 30 * 60 * 1000),
     rolling60: rollingVolumeBalanceSeries(points),
+    rolling120: rollingVolumeBalanceSeries(points, 120 * 60 * 1000),
   };
 }
 
@@ -3252,20 +3249,6 @@ export default function Home() {
 
         <div className="forecast-layout">
           <div className="forecast-main">
-            <ChartTimeControl
-              range={reviewRange}
-              historyCount={visibleHistoryPoints.length}
-              totalHistoryCount={forecastHistory.length}
-              fromLabel={formatDate(chartTimeDomain.min)}
-              toLabel={formatDate(chartTimeDomain.max)}
-              onChange={(nextRange) => {
-                setReviewRange(nextRange);
-                setTimeZoom({
-                  ...defaultTimeZoom,
-                  position: nextRange.preset === "custom" ? 0 : 100,
-                });
-              }}
-            />
             <div
               className="runtime-inline-controls"
               aria-label="Forecast Laufzeiten"
@@ -3389,6 +3372,22 @@ export default function Home() {
                   surfMin={Math.min(experienceTargets.flowMin, experienceTargets.flowMax)}
                   surfMax={Math.max(experienceTargets.flowMin, experienceTargets.flowMax)}
                   observations={observations}
+                  timeControl={
+                    <ChartTimeControl
+                      range={reviewRange}
+                      historyCount={visibleHistoryPoints.length}
+                      totalHistoryCount={forecastHistory.length}
+                      fromLabel={formatDate(chartTimeDomain.min)}
+                      toLabel={formatDate(chartTimeDomain.max)}
+                      onChange={(nextRange) => {
+                        setReviewRange(nextRange);
+                        setTimeZoom({
+                          ...defaultTimeZoom,
+                          position: nextRange.preset === "custom" ? 0 : 100,
+                        });
+                      }}
+                    />
+                  }
                 />
                 <SurfLevelChart
                   history={forecastHistory}
@@ -3412,7 +3411,9 @@ export default function Home() {
                   error={weatherError}
                 />
                 <SurfVolumeBalanceChart
-                  balance={volumeBalance.rolling60}
+                  balance30Series={volumeBalance.rolling30}
+                  balance60Series={volumeBalance.rolling60}
+                  balance120Series={volumeBalance.rolling120}
                   timeDomain={chartTimeDomain}
                   markerTime={waveTime}
                   balance30={volumeBalance.balance30}
@@ -3491,7 +3492,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.82.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.83.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
@@ -5250,6 +5251,7 @@ function SurfForecastChart({
   surfMin,
   surfMax,
   observations,
+  timeControl,
 }: {
   history: HistoryPoint[];
   forecast: { t: number; value: number | null }[];
@@ -5258,6 +5260,7 @@ function SurfForecastChart({
   surfMin: number;
   surfMax: number;
   observations: SurfObservation[];
+  timeControl?: ReactNode;
 }) {
   const [visible, setVisible] = useState<Record<FlowSeriesKey, boolean>>({
     trim: true,
@@ -5381,6 +5384,7 @@ function SurfForecastChart({
 
   return (
     <div className="forecast-chart">
+      {timeControl ? <div className="forecast-chart-controls">{timeControl}</div> : null}
       <svg viewBox={`0 0 ${width} ${height}`} role="img">
         <title>Abfluss im Verhältnis zur Zeit</title>
         {showTrim ? (
@@ -5728,31 +5732,40 @@ function SurfDeltaChart({
 }
 
 function SurfVolumeBalanceChart({
-  balance,
+  balance30Series,
+  balance60Series,
+  balance120Series,
   timeDomain,
   markerTime,
   balance30,
   balance60,
   balance120,
 }: {
-  balance: { t: number; value: number | null }[];
+  balance30Series: { t: number; value: number | null }[];
+  balance60Series: { t: number; value: number | null }[];
+  balance120Series: { t: number; value: number | null }[];
   timeDomain: TimeDomain;
   markerTime: number;
   balance30: number | null;
   balance60: number | null;
   balance120: number | null;
 }) {
-  const [visible, setVisible] = useState<Record<VolumeSeriesKey, boolean>>({
-    volume60: true,
-  });
+  const [windowMinutes, setWindowMinutes] = useState<VolumeWindowMinutes>(60);
+  const balanceByWindow = {
+    30: { current: balance30, series: balance30Series },
+    60: { current: balance60, series: balance60Series },
+    120: { current: balance120, series: balance120Series },
+  } satisfies Record<
+    VolumeWindowMinutes,
+    { current: number | null; series: { t: number; value: number | null }[] }
+  >;
+  const activeBalance = balanceByWindow[windowMinutes];
   const inTimeDomain = (point: { t: number }) =>
     point.t >= timeDomain.min && point.t <= timeDomain.max;
-  const visibleBalance = balance.filter(inTimeDomain);
-  const values = visible.volume60
-    ? visibleBalance
-        .map((point) => point.value)
-        .filter((value): value is number => typeof value === "number")
-    : [];
+  const visibleBalance = activeBalance.series.filter(inTimeDomain);
+  const values = visibleBalance
+    .map((point) => point.value)
+    .filter((value): value is number => typeof value === "number");
   const minT = timeDomain.min;
   const maxT = timeDomain.max;
   const maxAbs = Math.max(500, ...values.map((value) => Math.abs(value))) * 1.18;
@@ -5779,27 +5792,44 @@ function SurfVolumeBalanceChart({
 
   return (
     <div className="forecast-chart volume-chart">
-      <div className="volume-summary" aria-label="Volumenbilanz Übersicht">
+      <div
+        className="volume-toolbar"
+        onPointerDown={(event) => event.stopPropagation()}
+        onWheel={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
+        onTouchMove={(event) => event.stopPropagation()}
+      >
+        <label className="compact-select">
+          <span>Bilanzfenster</span>
+          <select
+            value={windowMinutes}
+            onChange={(event) =>
+              setWindowMinutes(Number(event.target.value) as VolumeWindowMinutes)
+            }
+          >
+            <option value={30}>30 min</option>
+            <option value={60}>60 min</option>
+            <option value={120}>120 min</option>
+          </select>
+        </label>
         <div>
-          <span>30 min</span>
-          <strong>{formatVolume(balance30)} m³</strong>
-        </div>
-        <div>
-          <span>60 min</span>
-          <strong>{formatVolume(balance60)} m³</strong>
-        </div>
-        <div>
-          <span>120 min</span>
-          <strong>{formatVolume(balance120)} m³</strong>
+          <span>Aktuell</span>
+          <strong>{formatVolume(activeBalance.current)} m³</strong>
         </div>
       </div>
+      <p className="chart-explain-card">
+        Volumenbilanz = Delta Welle über das gewählte Zeitfenster aufsummiert.
+        Positiv bedeutet: Es kommt mehr Wasser in Reichenau an, als die
+        zeitkorrigierten Zuflüsse Krössbach + Puig erklären. Negativ bedeutet:
+        Es kommt weniger an.
+      </p>
       <svg viewBox={`0 0 ${width} ${height}`} role="img">
         <title>Volumenbilanz aus Delta im Verhältnis zur Zeit</title>
         <text className="chart-title" x={plot.left} y={18}>
           Volumenbilanz
         </text>
         <text className="chart-subtitle" x={plot.left} y={34}>
-          Rollende 60 min aus Delta m³/s integriert
+          Rollende {windowMinutes} min aus Delta m³/s integriert
         </text>
         {gridTicks.map((tick) => (
           <line
@@ -5859,20 +5889,10 @@ function SurfVolumeBalanceChart({
             </text>
           </g>
         ) : null}
-        {visible.volume60 ? (
-          <path className="line volume" d={linePath(visibleBalance, x, y)} />
-        ) : null}
+        <path className="line volume" d={linePath(visibleBalance, x, y)} />
       </svg>
       <div className="chart-legend">
-        <LegendToggle
-          name="volume"
-          active={visible.volume60}
-          onClick={() =>
-            setVisible((current) => ({ ...current, volume60: !current.volume60 }))
-          }
-        >
-          Volumenbilanz 60 min
-        </LegendToggle>
+        <span className="legend-static volume">Volumenbilanz {windowMinutes} min</span>
       </div>
     </div>
   );
@@ -6419,58 +6439,66 @@ function ChartTimeControl({
   onChange: (range: ReviewRange) => void;
 }) {
   return (
-    <div className="chart-time-control">
+    <div
+      className="chart-time-control"
+      onPointerDown={(event) => event.stopPropagation()}
+      onWheel={(event) => event.stopPropagation()}
+      onTouchStart={(event) => event.stopPropagation()}
+      onTouchMove={(event) => event.stopPropagation()}
+    >
       <div className="chart-time-head">
         <span>Zeitbereich</span>
         <strong>{fromLabel} bis {toLabel}</strong>
       </div>
-      <div className="review-presets" role="group" aria-label="Rückblick wählen">
-        {reviewPresets.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            className={range.preset === preset.id ? "active" : ""}
-            onClick={() =>
-              onChange({
-                ...range,
-                preset: preset.id,
-              })
-            }
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
+      <label className="compact-select">
+        <span>Daten anzeigen</span>
+        <select
+          value={range.preset}
+          aria-label="Zeitbereich auswählen"
+          onChange={(event) =>
+            onChange({
+              ...range,
+              preset: event.target.value as ReviewPreset,
+            })
+          }
+        >
+          {reviewPresets.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
+      </label>
       {range.preset === "custom" ? (
         <div className="date-range">
-        <label>
-          <span>Von Datum</span>
-          <input
-            type="date"
-            value={dateInputValue(range.fromDate)}
-            onChange={(event) =>
+          <label>
+            <span>Von Datum</span>
+            <input
+              type="date"
+              value={dateInputValue(range.fromDate)}
+              onChange={(event) =>
               onChange({
                 ...range,
                 preset: "custom",
                 fromDate: event.target.value,
               })
-            }
-          />
-        </label>
-        <label>
-          <span>Bis Datum</span>
-          <input
-            type="date"
-            value={dateInputValue(range.toDate)}
-            onChange={(event) =>
-              onChange({
-                ...range,
-                preset: "custom",
-                toDate: event.target.value,
-              })
-            }
-          />
-        </label>
+              }
+            />
+          </label>
+          <label>
+            <span>Bis Datum</span>
+            <input
+              type="date"
+              value={dateInputValue(range.toDate)}
+              onChange={(event) =>
+                onChange({
+                  ...range,
+                  preset: "custom",
+                  toDate: event.target.value,
+                })
+              }
+            />
+          </label>
         </div>
       ) : null}
       <p>
