@@ -3275,7 +3275,24 @@ export default function Home() {
               </div>
               <div className="runtime-inline-recommendation">
                 <div>
-                  <span>Empfohlene Einstellung</span>
+                  <span className="runtime-recommendation-title">
+                    Empfohlene Einstellung
+                    <span className="metric-help runtime-help">
+                      <button
+                        type="button"
+                        className="metric-info"
+                        aria-label="Empfohlene Einstellung erklären"
+                      >
+                        ?
+                      </button>
+                      <span className="metric-tooltip" role="tooltip">
+                        Der Vorschlag zeigt, welche Laufzeiten im sichtbaren
+                        Zeitraum am besten zu Reichenau passen. Er hilft beim
+                        Feintunen der Regler, wird aber nicht automatisch
+                        übernommen.
+                      </span>
+                    </span>
+                  </span>
                   <strong>
                     {runtimeRecommendationHint
                       ? `${runtimeRecommendationHint.lagKroessbach} / ${runtimeRecommendationHint.lagPuig} min`
@@ -3287,11 +3304,6 @@ export default function Home() {
                       : "Sobald genug Vergleichspunkte sichtbar sind, erscheint hier ein Vorschlag."}
                   </small>
                 </div>
-                <p>
-                  Der Vorschlag zeigt, welche Laufzeiten im sichtbaren Zeitraum
-                  am besten zu Reichenau passen. Er hilft beim Feintunen der
-                  Regler, wird aber nicht automatisch übernommen.
-                </p>
               </div>
               <div className="runtime-inline-grid">
                 <RuntimeControl
@@ -3492,7 +3504,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.83.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.84.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>

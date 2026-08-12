@@ -2203,7 +2203,7 @@ h3 {
   border-radius: 8px;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(190px, 0.8fr) minmax(0, 1.2fr);
+  grid-template-columns: 1fr;
   padding: 12px;
 }
 
@@ -2216,6 +2216,17 @@ h3 {
   color: var(--muted);
   font-size: 0.74rem;
   font-weight: 850;
+}
+
+.runtime-recommendation-title {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.runtime-help .metric-tooltip {
+  left: auto;
+  right: 0;
 }
 
 .runtime-inline-recommendation strong {
