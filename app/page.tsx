@@ -250,6 +250,16 @@ type RuntimeComparisonSummary = {
   meanDelta: number | null;
   meanAbsoluteDelta: number | null;
   latest: RuntimeComparisonPoint | null;
+  recommendation: RuntimeRecommendation | null;
+};
+
+type RuntimeRecommendation = {
+  lagKroessbach: number;
+  lagPuig: number;
+  correlation: number | null;
+  meanAbsoluteDelta: number | null;
+  count: number;
+  confidence: number;
 };
 
 type InflowTrend = {
@@ -2074,25 +2084,30 @@ function pearsonCorrelation(pairs: { x: number; y: number }[]) {
   return parts.numerator / denominator;
 }
 
-function runtimeComparisonSummary(
+function runtimeComparisonPoints(
   history: HistoryPoint[],
-  settings: ForecastSettings,
+  lagKroessbach: number,
+  lagPuig: number,
   timeDomain: TimeDomain,
-): RuntimeComparisonSummary {
+  maxPoints?: number,
+) {
   const maxAgeMs = sampleInterval * 3;
-  const points = history
+  const base = history
     .filter(
       (point) =>
         point.t >= timeDomain.min &&
         point.t <= timeDomain.max &&
         point.reichenau !== null,
     )
+    .slice(maxPoints ? -maxPoints : 0);
+
+  return base
     .map((point) => {
       const shifted = shiftedUpstreamAt(
         history,
         point.t,
-        settings.lagKroessbach,
-        settings.lagPuig,
+        lagKroessbach,
+        lagPuig,
         maxAgeMs,
       );
       if (shifted.value === null) return null;
@@ -2106,7 +2121,9 @@ function runtimeComparisonSummary(
       };
     })
     .filter((point): point is RuntimeComparisonPoint => point !== null);
+}
 
+function runtimePointStats(points: RuntimeComparisonPoint[]) {
   if (!points.length) {
     return {
       count: 0,
@@ -2142,6 +2159,108 @@ function runtimeComparisonSummary(
     meanDelta,
     meanAbsoluteDelta,
     latest: points[points.length - 1],
+  };
+}
+
+function runtimeRecommendation(
+  history: HistoryPoint[],
+  timeDomain: TimeDomain,
+): RuntimeRecommendation | null {
+  const minuteRange = (min: number, max: number, step: number) =>
+    Array.from(
+      { length: Math.floor((max - min) / step) + 1 },
+      (_, index) => min + index * step,
+    );
+  const kroessbachCandidates = minuteRange(60, 180, 5);
+  const puigCandidates = minuteRange(45, 150, 5);
+  let best:
+    | (RuntimeRecommendation & {
+        score: number;
+      })
+    | null = null;
+
+  for (const lagKroessbach of kroessbachCandidates) {
+    for (const lagPuig of puigCandidates) {
+      const points = runtimeComparisonPoints(
+        history,
+        lagKroessbach,
+        lagPuig,
+        timeDomain,
+        160,
+      );
+      if (points.length < 8) continue;
+
+      const stats = runtimePointStats(points);
+      const correlation = stats.correlation ?? -1;
+      const meanAbsoluteDelta = stats.meanAbsoluteDelta ?? 99;
+      const score = correlation * 2 - Math.min(meanAbsoluteDelta / 8, 2);
+
+      if (!best || score > best.score) {
+        const positiveCorrelation = Math.max(0, correlation);
+        const confidence = Math.round(
+          clamp(
+            (Math.min(points.length / 32, 1) * 0.3 +
+              positiveCorrelation * 0.5 +
+              (1 - Math.min(meanAbsoluteDelta / 6, 1)) * 0.2) *
+              100,
+          ),
+        );
+
+        best = {
+          lagKroessbach,
+          lagPuig,
+          correlation: stats.correlation,
+          meanAbsoluteDelta: stats.meanAbsoluteDelta,
+          count: points.length,
+          confidence,
+          score,
+        };
+      }
+    }
+  }
+
+  if (!best) return null;
+
+  return {
+    lagKroessbach: best.lagKroessbach,
+    lagPuig: best.lagPuig,
+    correlation: best.correlation,
+    meanAbsoluteDelta: best.meanAbsoluteDelta,
+    count: best.count,
+    confidence: best.confidence,
+  };
+}
+
+function runtimeComparisonSummary(
+  history: HistoryPoint[],
+  settings: ForecastSettings,
+  timeDomain: TimeDomain,
+): RuntimeComparisonSummary {
+  const points = runtimeComparisonPoints(
+    history,
+    settings.lagKroessbach,
+    settings.lagPuig,
+    timeDomain,
+  );
+  const stats = runtimePointStats(points);
+  const recommendation = runtimeRecommendation(history, timeDomain);
+
+  if (!points.length) {
+    return {
+      count: 0,
+      correlation: null,
+      kroessbachCorrelation: null,
+      puigCorrelation: null,
+      meanDelta: null,
+      meanAbsoluteDelta: null,
+      latest: null,
+      recommendation,
+    };
+  }
+
+  return {
+    ...stats,
+    recommendation,
   };
 }
 
@@ -3351,7 +3470,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.75.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.76.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
@@ -4955,6 +5074,19 @@ function RuntimeCorrelationPanel({
           <strong>{formatNumber(summary.meanAbsoluteDelta, 2)} m³/s</strong>
           <small>mittlerer Abstand zwischen Erwartung und Messung.</small>
         </article>
+        <article className="runtime-recommendation-card">
+          <span>Empfohlene Einstellung</span>
+          <strong>
+            {summary.recommendation
+              ? `${summary.recommendation.lagKroessbach} / ${summary.recommendation.lagPuig} min`
+              : "n/a"}
+          </strong>
+          <small>
+            {summary.recommendation
+              ? `Krössbach / Puig · ${summary.recommendation.confidence} % Sicherheit · ${summary.recommendation.count} Vergleiche`
+              : "Noch zu wenig Daten im sichtbaren Zeitraum."}
+          </small>
+        </article>
         <article>
           <span>Ø Delta</span>
           <strong>{formatSignedNumber(summary.meanDelta, 2)} m³/s</strong>
@@ -4973,6 +5105,14 @@ function RuntimeCorrelationPanel({
           <small>erwartet aus Laufzeit → tatsächlich Reichenau.</small>
         </article>
       </div>
+      {summary.recommendation ? (
+        <p className="runtime-recommendation-note">
+          Empfehlung basiert auf dem besten Muster im aktuellen Zeitbereich:
+          Korrelation {formatCorrelation(summary.recommendation.correlation)}, Ø
+          Abweichung {formatNumber(summary.recommendation.meanAbsoluteDelta, 2)} m³/s.
+          Die Werte sind ein Hinweis zum Feintunen, kein automatischer Umbau der Regler.
+        </p>
+      ) : null}
       <div className="runtime-reference-grid">
         <article>
           <span>Offiziell Krössbach → Reichenau</span>

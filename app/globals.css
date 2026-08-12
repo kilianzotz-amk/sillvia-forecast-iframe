@@ -2332,7 +2332,7 @@ h3 {
 .runtime-correlation-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
 }
 
 .runtime-correlation-grid article {
@@ -2361,6 +2361,23 @@ h3 {
   color: var(--muted);
   font-size: 0.72rem;
   line-height: 1.35;
+}
+
+.runtime-recommendation-card {
+  background: #fff8eb !important;
+  border-color: #e2b56d !important;
+}
+
+.runtime-recommendation-note {
+  background: #eef5f3;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.5;
+  margin: 0;
+  padding: 10px 12px;
 }
 
 .runtime-reference-grid {
