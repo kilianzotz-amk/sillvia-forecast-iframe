@@ -3091,10 +3091,6 @@ export default function Home() {
               Wellenqualität <span className="beta-badge">BETA</span>
             </p>
           </div>
-          <div className="quality-basis">
-            <span>Modell</span>
-            <strong>Delta + Volumenbilanz + Oberlieger + Pegel + Meister + Trim</strong>
-          </div>
         </div>
         <div className="quality-grid">
           <WaveQualityCard title="Jetzt" quality={qualityNow} />
@@ -3355,7 +3351,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.74.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.75.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
       </footer>
     </main>
@@ -4810,6 +4806,26 @@ function WaveQualityScale({
   );
 }
 
+function MetricHelp({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <span className="metric-help">
+      <span>{label}</span>
+      <button type="button" className="metric-info" aria-label={`${label} erklären`}>
+        i
+      </button>
+      <span className="metric-tooltip" role="tooltip">
+        {children}
+      </span>
+    </span>
+  );
+}
+
 function WaveQualityCard({
   title,
   quality,
@@ -4847,14 +4863,26 @@ function WaveQualityCard({
           <dd>{formatTime(quality.time)}</dd>
         </div>
         <div>
-          <dt>Delta (Zufluss zu Abfluss)</dt>
+          <dt>
+            <MetricHelp label="Delta (Zufluss/Abfluss)">
+              Reichenau-Abfluss minus Summe Krössbach + Puig mit Laufzeitkorrektur.
+              Positiv bedeutet: Es kommt mehr Wasser an als aus den Oberliegern
+              erwartet. Negativ bedeutet: Es kommt weniger an, z.B. durch Rückhalt
+              oder Verzögerung.
+            </MetricHelp>
+          </dt>
           <dd>
             {quality.delta >= 0 ? "+" : ""}
             {formatNumber(quality.delta, 2)} m³/s
           </dd>
         </div>
         <div>
-          <dt>Zuflüsse</dt>
+          <dt>
+            <MetricHelp label="Zuflüsse">
+              Summe aus Krössbach und Puig am erwarteten Wellenzeitpunkt. Beide
+              Werte werden mit den eingestellten Laufzeiten zeitlich verschoben.
+            </MetricHelp>
+          </dt>
           <dd>{formatNumber(quality.upstream, 2)} m³/s</dd>
         </div>
         <div>
@@ -4868,24 +4896,14 @@ function WaveQualityCard({
           <dd>{formatNumber(quality.level, 1)} cm</dd>
         </div>
         <div>
-          <dt>Ø Differenz 60 min</dt>
+          <dt>
+            <MetricHelp label="Ø Differenz 60 min">
+              Volumenbilanz der letzten 60 Minuten, umgerechnet in eine
+              durchschnittliche Abflussdifferenz. Positiv heißt: über den Zeitraum
+              kam mehr Wasser an als erwartet. Negativ heißt: es kam weniger an.
+            </MetricHelp>
+          </dt>
           <dd>{formatVolumeBalanceFlow(quality.volumeBalance60)} m³/s</dd>
-        </div>
-        <div>
-          <dt>Modell</dt>
-          <dd>{quality.modelScore} %</dd>
-        </div>
-        <div>
-          <dt>Daten*Gewichtung</dt>
-          <dd>
-            {quality.data.score === null
-              ? "n/a"
-              : `${quality.data.score} % · ${quality.data.confidence} %`}
-          </dd>
-        </div>
-        <div>
-          <dt>Modell + Daten</dt>
-          <dd>{quality.dataScore} %</dd>
         </div>
         <div>
           <dt>Meister</dt>
@@ -4895,14 +4913,6 @@ function WaveQualityCard({
                   quality.manual.trimCm,
                   quality.manual.trim,
                 )}`
-              : "n/a"}
-          </dd>
-        </div>
-        <div>
-          <dt>Trimdaten</dt>
-          <dd>
-            {quality.trimSuggestion.sampleSize
-              ? `${quality.trimSuggestion.basis} · ${quality.trimSuggestion.sampleSize} Werte`
               : "n/a"}
           </dd>
         </div>
