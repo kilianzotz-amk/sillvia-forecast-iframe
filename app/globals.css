@@ -732,6 +732,41 @@ h3 {
   background: var(--steel);
 }
 
+.report-session-dot {
+  fill: #fff;
+  stroke: var(--ink);
+  stroke-width: 2.2;
+}
+
+.report-session-dot.rating-1 {
+  stroke: #b84d42;
+}
+
+.report-session-dot.rating-2 {
+  stroke: #c6771b;
+}
+
+.report-session-dot.rating-3 {
+  stroke: #ad8a20;
+}
+
+.report-session-dot.rating-4 {
+  stroke: #4f8a52;
+}
+
+.report-session-dot.rating-5 {
+  stroke: #1f7a48;
+}
+
+.report-session-label {
+  fill: var(--ink);
+  font-size: 0.62rem;
+  font-weight: 900;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3px;
+}
+
 .flow-section,
 .quality-section,
 .observation-section,
@@ -2497,7 +2532,7 @@ h3 {
     border: 0;
     border-radius: 0;
     box-shadow: none;
-    gap: 5px;
+    gap: 6px;
     padding: 0;
     page-break-after: avoid;
     page-break-inside: avoid;
@@ -2517,7 +2552,7 @@ h3 {
   }
 
   .report-print-header strong {
-    font-size: 13pt;
+    font-size: 12.5pt;
   }
 
   .report-print-header span,
@@ -2530,7 +2565,7 @@ h3 {
   }
 
   .report-summary p {
-    font-size: 9pt;
+    font-size: 8.6pt;
     line-height: 1.25;
   }
 
@@ -2540,7 +2575,7 @@ h3 {
   }
 
   .report-summary dd {
-    font-size: 8.4pt;
+    font-size: 8.2pt;
     margin-top: 2px;
   }
 
@@ -2549,16 +2584,16 @@ h3 {
   }
 
   .report-chart-stack {
-    gap: 3px;
+    gap: 4px;
   }
 
   .report-mini-chart {
     border-radius: 0;
-    padding: 3px 5px 1px;
+    padding: 3px 5px 0;
   }
 
   .report-mini-chart svg {
-    height: 25mm;
+    height: 31mm;
   }
 
   .report-mini-legend {
@@ -2567,7 +2602,7 @@ h3 {
 
   .report-grid {
     gap: 6px;
-    grid-template-columns: minmax(0, 1fr) 50mm;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .report-grid h3 {
@@ -2576,7 +2611,7 @@ h3 {
   }
 
   .report-grid table {
-    font-size: 6.8pt;
+    font-size: 6.9pt;
   }
 
   .report-grid th,
@@ -2585,7 +2620,26 @@ h3 {
   }
 
   .report-grid aside {
+    background: #fff;
+    border: 0;
+    border-top: 1px solid var(--line);
     border-radius: 0;
-    padding: 5px;
+    padding: 4px 0 0;
+  }
+
+  .report-grid aside ul {
+    gap: 2px;
+  }
+
+  .report-grid li,
+  .report-grid p {
+    color: var(--ink);
+    font-size: 6.9pt;
+    font-weight: 650;
+    line-height: 1.22;
+  }
+
+  .report-session-label {
+    font-size: 7pt;
   }
 }

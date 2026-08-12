@@ -198,6 +198,14 @@ type ReportSessionOption = {
   count: number;
 };
 
+type ReportChartMarker = {
+  id: number;
+  t: number;
+  value: number | null;
+  label: string;
+  quality: number;
+};
+
 type WaveQualityProjection = {
   time: number;
   delta: number;
@@ -928,14 +936,6 @@ function numericValues(values: Array<number | null>) {
   return values.filter((value): value is number => value !== null && Number.isFinite(value));
 }
 
-function compactText(value: string | null, maxLength = 95) {
-  if (!value) return "";
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > maxLength
-    ? `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}…`
-    : normalized;
-}
-
 function sessionReportDescription(
   averageQuality: number | null,
   observationCount: number,
@@ -1045,9 +1045,12 @@ function buildSessionReport(
     null,
   );
   const notes = ascendingEntries
-    .map((entry) => compactText(entry.note))
+    .map((entry) => {
+      const note = entry.note?.replace(/\s+/g, " ").trim() ?? "";
+      return note ? `${formatTime(entry.observedAt)} · ${note}` : "";
+    })
     .filter(Boolean)
-    .slice(0, 3);
+    .slice(0, 8);
 
   return {
     timeDomain: reportDomain,
@@ -1067,7 +1070,7 @@ function buildSessionReport(
     averageDelta,
     description: sessionReportDescription(averageQuality, entries.length, averageDelta),
     notes,
-    entries: ascendingEntries.slice(-8),
+    entries: ascendingEntries.slice(-10),
   };
 }
 
@@ -3142,7 +3145,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.68.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
+        Version 0.69.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
         Austria. Messstellen: 202283, 201574, 201624.
       </footer>
     </main>
@@ -3315,11 +3318,10 @@ function SessionReportSection({
                 <th>Welle</th>
                 <th>Trim</th>
                 <th>Reichenau</th>
-                <th>Notiz</th>
               </tr>
             </thead>
             <tbody>
-              {report.entries.slice(-6).map((entry) => (
+              {report.entries.map((entry) => (
                 <tr key={entry.id}>
                   <td>{formatTime(entry.observedAt)}</td>
                   <td>{formatQuality(entry.quality)}/5</td>
@@ -3328,12 +3330,11 @@ function SessionReportSection({
                     {formatNumber(entry.reichenauDischarge, 2)} m³/s ·{" "}
                     {formatNumber(entry.reichenauLevel, 1)} cm
                   </td>
-                  <td>{compactText(entry.note, 42) || "-"}</td>
                 </tr>
               ))}
               {!report.entries.length ? (
                 <tr>
-                  <td colSpan={5}>Keine Wellenmeisterwerte im gewählten Zeitraum.</td>
+                  <td colSpan={4}>Keine Wellenmeisterwerte im gewählten Zeitraum.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -3341,7 +3342,7 @@ function SessionReportSection({
         </div>
 
         <aside>
-          <h3>Kurznotizen</h3>
+          <h3>Vollständige Notizen</h3>
           {report.notes.length ? (
             <ul>
               {report.notes.map((note) => (
@@ -3385,6 +3386,40 @@ function SessionReportCharts({
     .filter(inReport)
     .map((point) => ({ t: point.t, value: point.reichenauLevel }));
   const deltaPoints = delta.filter(inReport);
+  const flowMarkers = report.entries.map((entry) => ({
+    id: entry.id,
+    t: entry.observedAt,
+    value: entry.reichenauDischarge,
+    label: formatQuality(entry.quality),
+    quality: entry.quality,
+  }));
+  const levelMarkers = report.entries.map((entry) => ({
+    id: entry.id,
+    t: entry.observedAt,
+    value: entry.reichenauLevel,
+    label: formatQuality(entry.quality),
+    quality: entry.quality,
+  }));
+  const deltaMarkers = report.entries.map((entry) => {
+    const features = observationDataFeatures(entry);
+    return {
+      id: entry.id,
+      t: entry.observedAt,
+      value: features.delta,
+      label: formatQuality(entry.quality),
+      quality: entry.quality,
+    };
+  });
+  const trimPoints = report.entries
+    .map((entry) => ({ t: entry.observedAt, value: entry.trimCm }))
+    .filter((point): point is { t: number; value: number } => point.value !== null);
+  const trimMarkers = report.entries.map((entry) => ({
+    id: entry.id,
+    t: entry.observedAt,
+    value: entry.trimCm,
+    label: entry.trimCm === null ? "" : formatNumber(entry.trimCm, 1),
+    quality: entry.quality,
+  }));
 
   return (
     <div className="report-chart-stack">
@@ -3397,6 +3432,7 @@ function SessionReportCharts({
           { label: "Zufluss K+P", className: "upstream", points: upstream },
           { label: "Reichenau", className: "reichenau", points: reichenau },
         ]}
+        markers={flowMarkers}
       />
       <ReportMiniChart
         title="Pegel Reichenau"
@@ -3404,6 +3440,7 @@ function SessionReportCharts({
         timeDomain={report.timeDomain}
         sessionDomain={report.sessionDomain}
         series={[{ label: "Pegel", className: "level", points: level }]}
+        markers={levelMarkers}
       />
       <ReportMiniChart
         title="Delta Welle"
@@ -3412,6 +3449,17 @@ function SessionReportCharts({
         sessionDomain={report.sessionDomain}
         zeroLine
         series={[{ label: "Delta", className: "delta", points: deltaPoints }]}
+        markers={deltaMarkers}
+      />
+      <ReportMiniChart
+        title="Trim"
+        unit="cm"
+        timeDomain={report.timeDomain}
+        sessionDomain={report.sessionDomain}
+        series={[{ label: "Trim", className: "trim", points: trimPoints }]}
+        markers={trimMarkers}
+        markerLabel="value"
+        yPaddingRatio={0.32}
       />
     </div>
   );
@@ -3423,28 +3471,47 @@ function ReportMiniChart({
   timeDomain,
   sessionDomain,
   series,
+  markers = [],
   zeroLine = false,
+  markerLabel = "quality",
+  yPaddingRatio = 0.12,
 }: {
   title: string;
   unit: string;
   timeDomain: TimeDomain;
   sessionDomain: TimeDomain;
   series: { label: string; className: string; points: { t: number; value: number | null }[] }[];
+  markers?: ReportChartMarker[];
   zeroLine?: boolean;
+  markerLabel?: "quality" | "value";
+  yPaddingRatio?: number;
 }) {
   const width = 760;
-  const height = 112;
-  const plot = { left: 46, top: 20, right: 16, bottom: 24 };
+  const height = 138;
+  const plot = { left: 48, top: 20, right: 18, bottom: 26 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const allValues = series
     .flatMap((item) => item.points.map((point) => point.value))
     .filter((value): value is number => value !== null && Number.isFinite(value));
-  const rawMin = zeroLine ? Math.min(0, ...allValues) : Math.min(...allValues, 0);
-  const rawMax = zeroLine ? Math.max(0, ...allValues) : Math.max(...allValues, 1);
+  allValues.push(
+    ...markers
+      .map((marker) => marker.value)
+      .filter((value): value is number => value !== null && Number.isFinite(value)),
+  );
+  const rawMin = allValues.length
+    ? zeroLine
+      ? Math.min(0, ...allValues)
+      : Math.min(...allValues)
+    : 0;
+  const rawMax = allValues.length
+    ? zeroLine
+      ? Math.max(0, ...allValues)
+      : Math.max(...allValues)
+    : 1;
   const range = Math.max(1, rawMax - rawMin);
-  const minValue = rawMin - range * 0.12;
-  const maxValue = rawMax + range * 0.12;
+  const minValue = rawMin - range * yPaddingRatio;
+  const maxValue = rawMax + range * yPaddingRatio;
   const x = (time: number) =>
     plot.left +
     ((time - timeDomain.min) / Math.max(1, timeDomain.max - timeDomain.min)) *
@@ -3453,7 +3520,9 @@ function ReportMiniChart({
     plot.top +
     plotHeight -
     ((value - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
-  const ticks = [minValue, (minValue + maxValue) / 2, maxValue];
+  const ticks = Array.from({ length: 5 }, (_, index) =>
+    minValue + ((maxValue - minValue) / 4) * index,
+  );
   const sessionStart = clamp(x(sessionDomain.min), plot.left, width - plot.right);
   const sessionEnd = clamp(x(sessionDomain.max), plot.left, width - plot.right);
 
@@ -3501,6 +3570,29 @@ function ReportMiniChart({
             d={linePath(item.points, x, y)}
           />
         ))}
+        {markers
+          .filter((marker) => marker.value !== null)
+          .map((marker, index) => {
+            const cx = x(marker.t);
+            const cy = y(marker.value ?? 0);
+            return (
+              <g key={marker.id}>
+                <circle
+                  className={`report-session-dot ${ratingClass(marker.quality)}`}
+                  cx={cx}
+                  cy={cy}
+                  r={4.6}
+                />
+                <text
+                  className="report-session-label"
+                  x={cx + 5}
+                  y={cy - 5 - (index % 2) * 8}
+                >
+                  {markerLabel === "value" ? marker.label : `${marker.label}/5`}
+                </text>
+              </g>
+            );
+          })}
         <text x={plot.left} y={height - 5}>
           {formatTime(timeDomain.min)}
         </text>
