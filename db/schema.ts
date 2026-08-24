@@ -78,3 +78,19 @@ export const weatherMeasurements = sqliteTable(
     ),
   ],
 );
+
+export const electricityPrices = sqliteTable(
+  "electricity_prices",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    startsAt: integer("starts_at").notNull(),
+    endsAt: integer("ends_at").notNull(),
+    collectedAt: integer("collected_at").notNull(),
+    marketPriceEurMwh: real("market_price_eur_mwh"),
+    unit: text("unit").notNull(),
+    source: text("source").notNull(),
+  },
+  (table) => [
+    uniqueIndex("electricity_prices_starts_at_idx").on(table.startsAt),
+  ],
+);

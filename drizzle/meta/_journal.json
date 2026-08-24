@@ -50,6 +50,13 @@
       "when": 1786381200000,
       "tag": "0006_weather_measurements",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787522400000,
+      "tag": "0007_electricity_prices",
+      "breakpoints": true
     }
   ]
 }

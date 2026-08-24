@@ -1,5 +1,7 @@
+import { storeElectricityPrices } from "@/db/electricity-prices";
 import { storeHydroPayload } from "@/db/hydro-history";
 import { storeWeatherPoints } from "@/db/weather-history";
+import { fetchElectricityCurrent } from "@/lib/electricity";
 import { fetchHydroPayload } from "@/lib/hydro";
 import { fetchWeatherCurrent } from "@/lib/weather";
 
@@ -7,6 +9,13 @@ async function collect() {
   try {
     const payload = await fetchHydroPayload();
     let weatherCollector:
+      | {
+          ok: boolean;
+          writes?: number;
+          error?: string;
+        }
+      | undefined;
+    let electricityCollector:
       | {
           ok: boolean;
           writes?: number;
@@ -30,6 +39,22 @@ async function collect() {
             error instanceof Error ? error.message : "Regen speichern fehlgeschlagen",
         };
       }
+      try {
+        const electricityPrices = await fetchElectricityCurrent();
+        const electricityStored = await storeElectricityPrices(electricityPrices);
+        electricityCollector = {
+          ok: true,
+          writes: electricityStored.writes,
+        };
+      } catch (error) {
+        electricityCollector = {
+          ok: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Strompreis speichern fehlgeschlagen",
+        };
+      }
 
       return Response.json({
         ok: true,
@@ -37,6 +62,7 @@ async function collect() {
         source: payload.source,
         hydroWrites: stored.writes,
         weather: weatherCollector,
+        electricity: electricityCollector,
         stations: payload.stations.map((station) => ({
           id: station.id,
           shortName: station.shortName,

@@ -84,6 +84,23 @@ type WeatherPayload = {
   error?: string;
 };
 
+type ElectricityPricePoint = {
+  t: number;
+  end: number;
+  marketPriceEurMwh: number | null;
+  unit: "Eur/MWh";
+  source: "aWATTar";
+};
+
+type ElectricityPayload = {
+  fetchedAt: string;
+  source: string;
+  history: ElectricityPricePoint[];
+  forecast: ElectricityPricePoint[];
+  historySource?: "database" | "awattar" | "mixed";
+  error?: string;
+};
+
 type HistoryPoint = {
   t: number;
   kroessbach: number | null;
@@ -260,6 +277,16 @@ type RuntimeRecommendation = {
   meanAbsoluteDelta: number | null;
   count: number;
   confidence: number;
+};
+
+type ElectricityCorrelationSummary = {
+  count: number;
+  correlation: number | null;
+  averagePositiveDeltaPrice: number | null;
+  averageNonPositiveDeltaPrice: number | null;
+  latestPrice: number | null;
+  nextPeak: ElectricityPricePoint | null;
+  note: string;
 };
 
 type InflowTrend = {
@@ -460,6 +487,13 @@ const defaultWeatherPayload: WeatherPayload = {
       altitude: 2251,
     },
   ],
+};
+const defaultElectricityPayload: ElectricityPayload = {
+  fetchedAt: new Date().toISOString(),
+  source: "aWATTar / EPEX Spot",
+  history: [],
+  forecast: [],
+  historySource: "awattar",
 };
 const reviewPresets: { id: ReviewPreset; label: string }[] = [
   { id: "24h", label: "24 h" },
@@ -802,6 +836,11 @@ function formatVolumeBalanceFlow(value: number | null) {
   if (value === null) return "n/a";
   const averageFlow = value / 3600;
   return `${averageFlow >= 0 ? "+" : ""}${formatNumber(averageFlow, 2)}`;
+}
+
+function formatMarketPrice(value: number | null) {
+  if (value === null) return "n/a";
+  return `${formatNumber(value, 1)} €/MWh`;
 }
 
 function formatOptionalCm(value: number | null) {
@@ -1654,6 +1693,20 @@ function compactWeatherHistory(points: WeatherPoint[], maxPoints = 50000) {
     .slice(-maxPoints);
 }
 
+function compactElectricityPrices(
+  points: ElectricityPricePoint[],
+  maxPoints = 10000,
+) {
+  const byStart = new Map<number, ElectricityPricePoint>();
+
+  for (const point of points) {
+    if (!Number.isFinite(point.t)) continue;
+    byStart.set(point.t, point);
+  }
+
+  return [...byStart.values()].sort((a, b) => a.t - b.t).slice(-maxPoints);
+}
+
 function aggregateRainSeries(points: WeatherPoint[]) {
   const byTime = new Map<number, number[]>();
 
@@ -2081,6 +2134,58 @@ function pearsonCorrelation(pairs: { x: number; y: number }[]) {
   return parts.numerator / denominator;
 }
 
+function electricityPriceAt(
+  prices: ElectricityPricePoint[],
+  t: number,
+) {
+  const point = prices.find((entry) => entry.t <= t && entry.end > t);
+  return point?.marketPriceEurMwh ?? null;
+}
+
+function electricityCorrelationSummary(
+  prices: ElectricityPricePoint[],
+  delta: { t: number; value: number | null }[],
+  timeDomain: TimeDomain,
+  now: number,
+): ElectricityCorrelationSummary {
+  const usablePrices = compactElectricityPrices(prices);
+  const pairs = delta
+    .filter((point) => point.t >= timeDomain.min && point.t <= timeDomain.max)
+    .map((point) => {
+      const price = electricityPriceAt(usablePrices, point.t);
+      if (point.value === null || price === null) return null;
+      return { x: price, y: point.value };
+    })
+    .filter((pair): pair is { x: number; y: number } => pair !== null);
+  const positivePrices = pairs.filter((pair) => pair.y > 0).map((pair) => pair.x);
+  const nonPositivePrices = pairs.filter((pair) => pair.y <= 0).map((pair) => pair.x);
+  const future = usablePrices.filter((point) => point.t >= now);
+  const nextPeak =
+    future.sort(
+      (a, b) =>
+        (b.marketPriceEurMwh ?? Number.NEGATIVE_INFINITY) -
+        (a.marketPriceEurMwh ?? Number.NEGATIVE_INFINITY),
+    )[0] ?? null;
+  const correlation = pearsonCorrelation(pairs);
+
+  return {
+    count: pairs.length,
+    correlation,
+    averagePositiveDeltaPrice: average(positivePrices),
+    averageNonPositiveDeltaPrice: average(nonPositivePrices),
+    latestPrice: electricityPriceAt(usablePrices, now),
+    nextPeak,
+    note:
+      pairs.length < 12
+        ? "Noch wenig Vergleichsdaten im sichtbaren Zeitraum."
+        : correlation !== null && correlation > 0.35
+          ? "Höhere Strompreise laufen im sichtbaren Zeitraum eher mit positivem Delta."
+          : correlation !== null && correlation < -0.35
+            ? "Höhere Strompreise laufen im sichtbaren Zeitraum eher gegen positives Delta."
+            : "Im sichtbaren Zeitraum ist noch kein klares Strompreis-Delta-Muster sichtbar.",
+  };
+}
+
 function runtimeComparisonPoints(
   history: HistoryPoint[],
   lagKroessbach: number,
@@ -2270,6 +2375,9 @@ export default function Home() {
   const [weatherPayload, setWeatherPayload] =
     useState<WeatherPayload>(defaultWeatherPayload);
   const [weatherError, setWeatherError] = useState("");
+  const [electricityPayload, setElectricityPayload] =
+    useState<ElectricityPayload>(defaultElectricityPayload);
+  const [electricityError, setElectricityError] = useState("");
   const [forecastSettings, setForecastSettings] = useState<ForecastSettings>(() =>
     readStoredSettings(),
   );
@@ -2356,6 +2464,7 @@ export default function Home() {
         recordHistory(orderedPayload);
       }
       void refreshWeather(historyHours);
+      void refreshElectricity(historyHours);
       void refreshObservations(historyHours);
       void refreshSetupLogs();
     } catch (err) {
@@ -2401,6 +2510,30 @@ export default function Home() {
       });
     } catch (err) {
       setWeatherError(err instanceof Error ? err.message : "Wetterdaten nicht verfügbar");
+    }
+  }
+
+  async function refreshElectricity(historyHours = reviewRangeHours(reviewRange)) {
+    setElectricityError("");
+    try {
+      const response = await fetch(
+        `/api/electricity?hours=${Math.ceil(Math.max(24, historyHours))}`,
+        { cache: "no-store" },
+      );
+      const data = (await response.json()) as ElectricityPayload;
+      if (!response.ok) {
+        throw new Error(data.error ?? "Strompreise nicht verfügbar");
+      }
+      setElectricityPayload({
+        ...defaultElectricityPayload,
+        ...data,
+        history: compactElectricityPrices(data.history ?? []),
+        forecast: compactElectricityPrices(data.forecast ?? []),
+      });
+    } catch (err) {
+      setElectricityError(
+        err instanceof Error ? err.message : "Strompreise nicht verfügbar",
+      );
     }
   }
 
@@ -2812,6 +2945,18 @@ export default function Home() {
   );
   const visibleWeatherForecast = (weatherPayload.forecast ?? []).filter(
     (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
+  );
+  const visibleElectricityHistory = electricityPayload.history.filter(
+    (point) => point.t <= chartTimeDomain.max && point.end >= chartTimeDomain.min,
+  );
+  const visibleElectricityForecast = electricityPayload.forecast.filter(
+    (point) => point.t <= chartTimeDomain.max && point.end >= chartTimeDomain.min,
+  );
+  const electricityCorrelation = electricityCorrelationSummary(
+    [...electricityPayload.history, ...electricityPayload.forecast],
+    deltaLine,
+    chartTimeDomain,
+    waveTime,
   );
   const waveInflowTrend = inflowTrendAt(
     forecastHistory,
@@ -3422,6 +3567,15 @@ export default function Home() {
                   markerTime={lastMeasurementTime}
                   error={weatherError}
                 />
+                <ElectricitySection
+                  payload={electricityPayload}
+                  visibleHistory={visibleElectricityHistory}
+                  visibleForecast={visibleElectricityForecast}
+                  timeDomain={chartTimeDomain}
+                  markerTime={waveTime}
+                  summary={electricityCorrelation}
+                  error={electricityError}
+                />
                 <SurfVolumeBalanceChart
                   balance30Series={volumeBalance.rolling30}
                   balance60Series={volumeBalance.rolling60}
@@ -3504,8 +3658,9 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.84.260812 · Autor: Kilian Zotz · Quelle: {payload.source} + GeoSphere
-        Austria. Messstellen: 202283, 201574, 201624, RiverApp Gärberbach.
+        Version 0.85.260824 · Autor: Kilian Zotz · Quelle: {payload.source} +
+        GeoSphere Austria + aWATTar. Messstellen: 202283, 201574, 201624,
+        RiverApp Gärberbach.
       </footer>
     </main>
   );
@@ -5738,6 +5893,191 @@ function SurfDeltaChart({
         >
           Delta Welle
         </LegendToggle>
+      </div>
+    </div>
+  );
+}
+
+function ElectricitySection({
+  payload,
+  visibleHistory,
+  visibleForecast,
+  timeDomain,
+  markerTime,
+  summary,
+  error,
+}: {
+  payload: ElectricityPayload;
+  visibleHistory: ElectricityPricePoint[];
+  visibleForecast: ElectricityPricePoint[];
+  timeDomain: TimeDomain;
+  markerTime: number;
+  summary: ElectricityCorrelationSummary;
+  error: string;
+}) {
+  return (
+    <section className="electricity-section">
+      <div className="rain-section-head">
+        <div>
+          <p>
+            Strompreis <span className="beta-badge">BETA</span>
+          </p>
+          <h3>aWATTar Preis im Zeitverlauf</h3>
+        </div>
+        <div className="rain-source">
+          <span>{payload.historySource === "database" ? "Datenbank" : "Quelle"}</span>
+          <strong>{payload.historySource === "database" ? "mitgeschrieben" : "aWATTar"}</strong>
+        </div>
+      </div>
+      {error ? <div className="notice rain-notice">{error}</div> : null}
+      <div className="electricity-summary">
+        <div>
+          <span>Jetzt</span>
+          <strong>{formatMarketPrice(summary.latestPrice)}</strong>
+        </div>
+        <div>
+          <span>Peak Forecast</span>
+          <strong>
+            {summary.nextPeak
+              ? `${formatTime(summary.nextPeak.t)} · ${formatMarketPrice(
+                  summary.nextPeak.marketPriceEurMwh,
+                )}`
+              : "n/a"}
+          </strong>
+        </div>
+        <div>
+          <span>Korrelation Preis ↔ Delta</span>
+          <strong>{formatCorrelation(summary.correlation)}</strong>
+        </div>
+        <div>
+          <span>Vergleiche</span>
+          <strong>{summary.count}</strong>
+        </div>
+      </div>
+      <ElectricityChart
+        history={visibleHistory}
+        forecast={visibleForecast}
+        timeDomain={timeDomain}
+        markerTime={markerTime}
+      />
+      <p className="chart-explain-card electricity-note">
+        {summary.note} Preisvergleich: positives Delta Ø{" "}
+        {formatMarketPrice(summary.averagePositiveDeltaPrice)}, nicht positives
+        Delta Ø {formatMarketPrice(summary.averageNonPositiveDeltaPrice)}.
+      </p>
+    </section>
+  );
+}
+
+function ElectricityChart({
+  history,
+  forecast,
+  timeDomain,
+  markerTime,
+}: {
+  history: ElectricityPricePoint[];
+  forecast: ElectricityPricePoint[];
+  timeDomain: TimeDomain;
+  markerTime: number;
+}) {
+  const historySeries = history.map((point) => ({
+    t: point.t,
+    value: point.marketPriceEurMwh,
+  }));
+  const forecastSeries = forecast.map((point) => ({
+    t: point.t,
+    value: point.marketPriceEurMwh,
+  }));
+  const values = [...historySeries, ...forecastSeries]
+    .map((point) => point.value)
+    .filter((value): value is number => typeof value === "number");
+  const minT = timeDomain.min;
+  const maxT = timeDomain.max;
+  const rawMinValue = Math.min(0, ...values);
+  const rawMaxValue = Math.max(1, ...values);
+  const valueRange = Math.max(1, rawMaxValue - rawMinValue);
+  const minValue = rawMinValue - valueRange * 0.12;
+  const maxValue = rawMaxValue + valueRange * 0.15;
+  const width = 820;
+  const height = 280;
+  const plot = { left: 64, top: 42, right: 24, bottom: 42 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const x = (t: number) =>
+    plot.left + ((t - minT) / Math.max(1, maxT - minT)) * plotWidth;
+  const y = (value: number) =>
+    plot.top +
+    plotHeight -
+    ((value - minValue) / Math.max(1, maxValue - minValue)) * plotHeight;
+  const yTicks = Array.from({ length: 5 }, (_, index) =>
+    Number((minValue + ((maxValue - minValue) / 4) * index).toFixed(1)),
+  );
+  const xTicks = timeAxisTicks(minT, maxT);
+  const gridTicks = timeGridTicks(minT, maxT);
+  const markerX = x(markerTime);
+
+  return (
+    <div className="forecast-chart electricity-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <title>Strompreis im Verhältnis zur Zeit</title>
+        <text className="chart-title" x={plot.left} y={18}>
+          Strompreis
+        </text>
+        <text className="chart-subtitle" x={plot.left} y={34}>
+          aWATTar Spotpreis in €/MWh
+        </text>
+        {gridTicks.map((tick) => (
+          <line
+            key={tick.t}
+            className={`time-grid-line ${tick.major ? "major" : "minor"}`}
+            x1={x(tick.t)}
+            x2={x(tick.t)}
+            y1={plot.top}
+            y2={plot.top + plotHeight}
+          />
+        ))}
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line
+              className="grid-line"
+              x1={plot.left}
+              x2={width - plot.right}
+              y1={y(tick)}
+              y2={y(tick)}
+            />
+            <text x={10} y={y(tick) + 4}>
+              {formatNumber(tick, Math.abs(tick) >= 100 ? 0 : 1)}
+            </text>
+          </g>
+        ))}
+        {xTicks.map((tick) => (
+          <text key={tick} x={x(tick)} y={height - 12} textAnchor="middle">
+            {formatAxisTime(tick, maxT - minT)}
+          </text>
+        ))}
+        {markerX >= plot.left && markerX <= width - plot.right ? (
+          <g>
+            <line
+              className="marker-line"
+              x1={markerX}
+              x2={markerX}
+              y1={plot.top}
+              y2={plot.top + plotHeight}
+            />
+            <text className="marker-label" x={markerX + 7} y={plot.top + 12}>
+              Messpunkt
+            </text>
+          </g>
+        ) : null}
+        <path className="line electricity" d={linePath(historySeries, x, y)} />
+        <path
+          className="line electricity electricity-forecast"
+          d={linePath(forecastSeries, x, y)}
+        />
+      </svg>
+      <div className="chart-legend">
+        <span className="legend-static electricity">aWATTar gemessen</span>
+        <span className="legend-static electricity-forecast">aWATTar Forecast</span>
       </div>
     </div>
   );

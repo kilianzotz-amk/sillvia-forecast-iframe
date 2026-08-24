@@ -1,8 +1,10 @@
+import { storeElectricityPrices } from "@/db/electricity-prices";
 import {
   getHydroRatingSamples,
   storeHydroBackfillPoints,
 } from "@/db/hydro-history";
 import { storeWeatherPoints } from "@/db/weather-history";
+import { fetchElectricityHistorical } from "@/lib/electricity";
 import {
   fetchHydroWaterBackfill,
   type HydroWaterBackfillPoint,
@@ -95,6 +97,9 @@ async function backfill(request: Request) {
     let weather:
       | { ok: true; points: number; writes: number }
       | { ok: false; error: string };
+    let electricity:
+      | { ok: true; points: number; writes: number }
+      | { ok: false; error: string };
 
     try {
       const weatherPoints = await fetchWeatherHistorical(safeHours);
@@ -113,6 +118,25 @@ async function backfill(request: Request) {
             : "Regen-Backfill fehlgeschlagen",
       };
     }
+    try {
+      const electricityPoints = await fetchElectricityHistorical(
+        Math.max(safeHours, 31 * 24),
+      );
+      const electricityStored = await storeElectricityPrices(electricityPoints);
+      electricity = {
+        ok: true,
+        points: electricityPoints.length,
+        writes: electricityStored.writes,
+      };
+    } catch (error) {
+      electricity = {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Strompreis-Backfill fehlgeschlagen",
+      };
+    }
 
     return Response.json({
       ok: true,
@@ -125,6 +149,7 @@ async function backfill(request: Request) {
         ).length,
       },
       weather,
+      electricity,
     });
   } catch (error) {
     return Response.json(
