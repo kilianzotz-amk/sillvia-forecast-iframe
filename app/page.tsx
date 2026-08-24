@@ -357,6 +357,14 @@ type TimeDrag = {
   position: number;
 };
 
+type RefreshMode = "range" | "live" | "manual";
+
+type CacheEntry<T> = {
+  hours: number;
+  payload: T;
+  updatedAt: number;
+};
+
 type FlowSeriesKey =
   | "trim"
   | "kroessbach"
@@ -399,6 +407,8 @@ const hourMs = 60 * 60 * 1000;
 const reportSessionGapMs = 3 * hourMs;
 const reportContextMs = hourMs;
 const observationLearningHours = 365 * 24;
+const liveRefreshHours = 24;
+const maxRuntimeBufferHours = 4;
 const platformSetupChangeAt = new Date("2026-08-06T00:00:00+02:00").getTime();
 const defaultForecastSettings: ForecastSettings = {
   lagKroessbach: 115,
@@ -619,6 +629,23 @@ const fallbackPayload: HydroPayload = {
     },
   ],
 };
+
+function hasCachedCoverage<T>(
+  entry: CacheEntry<T> | null,
+  hours: number,
+  force: boolean,
+) {
+  return !force && entry !== null && entry.hours >= hours;
+}
+
+function orderHydroPayloadStations(payload: HydroPayload): HydroPayload {
+  return {
+    ...payload,
+    stations: stationOrder
+      .map((id) => payload.stations.find((station) => station.id === id))
+      .filter(Boolean) as HydroStation[],
+  };
+}
 
 function formatNumber(value: number | null, digits = 1) {
   if (value === null || Number.isNaN(value)) return "n/a";
@@ -2419,54 +2446,88 @@ export default function Home() {
   const [setupSaving, setSetupSaving] = useState(false);
   const [deletingSetupId, setDeletingSetupId] = useState<number | null>(null);
   const [setupMessage, setSetupMessage] = useState("");
+  const hydroCacheRef = useRef<CacheEntry<HydroPayload> | null>(null);
+  const weatherCacheRef = useRef<CacheEntry<WeatherPayload> | null>(null);
+  const electricityCacheRef = useRef<CacheEntry<ElectricityPayload> | null>(null);
+  const observationsCacheRef = useRef<CacheEntry<SurfObservation[]> | null>(null);
+  const setupLogsCacheRef = useRef<CacheEntry<PlatformSetupLog[]> | null>(null);
 
-  function recordHistory(nextPayload: HydroPayload) {
+  function applyHydroPayload(nextPayload: HydroPayload, mode: RefreshMode) {
     const point = historyPointFromPayload(nextPayload);
-    if (!point) return;
+
+    setPayload(nextPayload);
 
     setHistory((current) => {
-      const next = compactHistory([...current, point]);
+      const next = compactHistory(
+        [
+          ...(mode === "range" || mode === "manual" ? [] : current),
+          ...(nextPayload.history ?? []),
+          point,
+        ].filter(Boolean) as HistoryPoint[],
+      );
       window.localStorage.setItem(historyStorageKey, JSON.stringify(next));
       return next;
     });
   }
 
-  async function refresh(historyHours = reviewRangeHours(reviewRange)) {
+  async function refresh(
+    historyHours = reviewRangeHours(reviewRange),
+    options: { mode?: RefreshMode; force?: boolean } = {},
+  ) {
+    const mode = options.mode ?? "range";
+    const force = options.force ?? false;
+    const safeHistoryHours = Math.ceil(
+      Math.max(1, Number.isFinite(historyHours) ? historyHours : liveRefreshHours),
+    );
     setLoading(true);
     setError("");
     try {
-      const runtimeBufferHours =
-        Math.ceil(
-          Math.max(forecastSettings.lagKroessbach, forecastSettings.lagPuig) / 60,
-        ) + 1;
-      const fetchHours = Math.min(365 * 24, historyHours + runtimeBufferHours);
-      const response = await fetch(
-        `/api/hydro?hours=${Math.ceil(fetchHours)}`,
-        { cache: "no-store" },
+      const fetchHours = Math.min(
+        365 * 24,
+        (mode === "live" ? liveRefreshHours : safeHistoryHours) + maxRuntimeBufferHours,
       );
-      if (!response.ok) throw new Error("Daten konnten nicht geladen werden");
-      const nextPayload = (await response.json()) as HydroPayload;
-      const orderedPayload = {
-        ...nextPayload,
-        stations: stationOrder
-          .map((id) => nextPayload.stations.find((station) => station.id === id))
-          .filter(Boolean) as HydroStation[],
-      };
-      setPayload(orderedPayload);
-      const currentPoint = historyPointFromPayload(orderedPayload);
-      if (orderedPayload.history?.length) {
-        const nextHistory = compactHistory(
-          [...orderedPayload.history, currentPoint].filter(Boolean) as HistoryPoint[],
-        );
-        setHistory(nextHistory);
-        window.localStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
+      const cachedHydro = hydroCacheRef.current;
+
+      if (mode !== "live" && hasCachedCoverage(cachedHydro, fetchHours, force)) {
+        applyHydroPayload(cachedHydro.payload, mode);
       } else {
-        recordHistory(orderedPayload);
+        const response = await fetch(`/api/hydro?hours=${Math.ceil(fetchHours)}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error("Daten konnten nicht geladen werden");
+        const orderedPayload = orderHydroPayloadStations(
+          (await response.json()) as HydroPayload,
+        );
+        applyHydroPayload(orderedPayload, mode);
+        const cachedHours =
+          mode === "live"
+            ? Math.max(hydroCacheRef.current?.hours ?? 0, fetchHours)
+            : fetchHours;
+        hydroCacheRef.current = {
+          hours: cachedHours,
+          payload: {
+            ...orderedPayload,
+            history:
+              mode === "live"
+                ? compactHistory([
+                    ...(hydroCacheRef.current?.payload.history ?? []),
+                    ...(orderedPayload.history ?? []),
+                    historyPointFromPayload(orderedPayload),
+                  ].filter(Boolean) as HistoryPoint[])
+                : orderedPayload.history,
+          },
+          updatedAt: Date.now(),
+        };
       }
-      void refreshWeather(historyHours);
-      void refreshElectricity(historyHours);
-      void refreshObservations(historyHours);
-      void refreshSetupLogs();
+
+      void refreshWeather(safeHistoryHours, { mode, force });
+      void refreshElectricity(safeHistoryHours, { mode, force });
+      if (mode !== "live" || force) {
+        void refreshObservations(Math.max(observationLearningHours, safeHistoryHours), {
+          force,
+        });
+        void refreshSetupLogs({ force });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unbekannter Fehler");
     } finally {
@@ -2474,61 +2535,131 @@ export default function Home() {
     }
   }
 
-  async function refreshObservations(historyHours = reviewRangeHours(reviewRange)) {
+  async function refreshObservations(
+    historyHours = Math.max(observationLearningHours, reviewRangeHours(reviewRange)),
+    options: { force?: boolean } = {},
+  ) {
     try {
+      const safeHours = Math.ceil(Math.max(observationLearningHours, historyHours));
+      const cachedObservations = observationsCacheRef.current;
+      if (hasCachedCoverage(cachedObservations, safeHours, options.force ?? false)) {
+        setObservations(cachedObservations.payload);
+        return;
+      }
       const response = await fetch(
-        `/api/surf-observations?hours=${Math.ceil(
-          Math.max(observationLearningHours, historyHours),
-        )}`,
+        `/api/surf-observations?hours=${safeHours}`,
         { cache: "no-store" },
       );
       if (!response.ok) throw new Error("Beobachtungen nicht verfügbar");
       const data = (await response.json()) as {
         observations?: SurfObservation[];
       };
-      setObservations(sortSurfObservations(data.observations ?? []));
+      const nextObservations = sortSurfObservations(data.observations ?? []);
+      observationsCacheRef.current = {
+        hours: safeHours,
+        payload: nextObservations,
+        updatedAt: Date.now(),
+      };
+      setObservations(nextObservations);
     } catch {
       setObservations([]);
     }
   }
 
-  async function refreshWeather(historyHours = reviewRangeHours(reviewRange)) {
+  async function refreshWeather(
+    historyHours = reviewRangeHours(reviewRange),
+    options: { mode?: RefreshMode; force?: boolean } = {},
+  ) {
+    const mode = options.mode ?? "range";
+    const safeHours = Math.ceil(
+      Math.max(24, mode === "live" ? liveRefreshHours : historyHours),
+    );
     setWeatherError("");
     try {
-      const response = await fetch(
-        `/api/weather?hours=${Math.ceil(Math.max(24, historyHours))}`,
-        { cache: "no-store" },
-      );
+      const cachedWeather = weatherCacheRef.current;
+      if (mode !== "live" && hasCachedCoverage(cachedWeather, safeHours, options.force ?? false)) {
+        setWeatherPayload(cachedWeather.payload);
+        return;
+      }
+      const response = await fetch(`/api/weather?hours=${safeHours}`, {
+        cache: "no-store",
+      });
       const data = (await response.json()) as WeatherPayload;
       if (!response.ok) throw new Error(data.error ?? "Wetterdaten nicht verfügbar");
-      setWeatherPayload({
-        ...defaultWeatherPayload,
-        ...data,
-        stations: data.stations?.length ? data.stations : defaultWeatherPayload.stations,
-        history: compactWeatherHistory(data.history ?? []),
-        forecast: compactWeatherHistory(data.forecast ?? []),
+      setWeatherPayload((current) => {
+        const nextPayload = {
+          ...defaultWeatherPayload,
+          ...data,
+          stations: data.stations?.length
+            ? data.stations
+            : defaultWeatherPayload.stations,
+          history: compactWeatherHistory(
+            mode === "live"
+              ? [...current.history, ...(data.history ?? [])]
+              : data.history ?? [],
+          ),
+          forecast: compactWeatherHistory(data.forecast ?? []),
+        };
+        weatherCacheRef.current = {
+          hours:
+            mode === "live"
+              ? Math.max(weatherCacheRef.current?.hours ?? 0, safeHours)
+              : safeHours,
+          payload: nextPayload,
+          updatedAt: Date.now(),
+        };
+        return nextPayload;
       });
     } catch (err) {
       setWeatherError(err instanceof Error ? err.message : "Wetterdaten nicht verfügbar");
     }
   }
 
-  async function refreshElectricity(historyHours = reviewRangeHours(reviewRange)) {
+  async function refreshElectricity(
+    historyHours = reviewRangeHours(reviewRange),
+    options: { mode?: RefreshMode; force?: boolean } = {},
+  ) {
+    const mode = options.mode ?? "range";
+    const safeHours = Math.ceil(
+      Math.max(24, mode === "live" ? liveRefreshHours : historyHours),
+    );
     setElectricityError("");
     try {
-      const response = await fetch(
-        `/api/electricity?hours=${Math.ceil(Math.max(24, historyHours))}`,
-        { cache: "no-store" },
-      );
+      const cachedElectricity = electricityCacheRef.current;
+      if (
+        mode !== "live" &&
+        hasCachedCoverage(cachedElectricity, safeHours, options.force ?? false)
+      ) {
+        setElectricityPayload(cachedElectricity.payload);
+        return;
+      }
+      const response = await fetch(`/api/electricity?hours=${safeHours}`, {
+        cache: "no-store",
+      });
       const data = (await response.json()) as ElectricityPayload;
       if (!response.ok) {
         throw new Error(data.error ?? "Strompreise nicht verfügbar");
       }
-      setElectricityPayload({
-        ...defaultElectricityPayload,
-        ...data,
-        history: compactElectricityPrices(data.history ?? []),
-        forecast: compactElectricityPrices(data.forecast ?? []),
+      setElectricityPayload((current) => {
+        const nextPayload = {
+          ...defaultElectricityPayload,
+          ...data,
+          history: compactElectricityPrices(
+            mode === "live"
+              ? [...current.history, ...(data.history ?? [])]
+              : data.history ?? [],
+          ),
+          forecast: compactElectricityPrices(data.forecast ?? []),
+        };
+        electricityCacheRef.current = {
+          hours:
+            mode === "live"
+              ? Math.max(electricityCacheRef.current?.hours ?? 0, safeHours)
+              : safeHours,
+          payload: nextPayload,
+          updatedAt: Date.now(),
+        };
+        return nextPayload;
       });
     } catch (err) {
       setElectricityError(
@@ -2537,14 +2668,25 @@ export default function Home() {
     }
   }
 
-  async function refreshSetupLogs() {
+  async function refreshSetupLogs(options: { force?: boolean } = {}) {
     try {
+      const cachedSetupLogs = setupLogsCacheRef.current;
+      if (hasCachedCoverage(cachedSetupLogs, 1, options.force ?? false)) {
+        setSetupLogs(cachedSetupLogs.payload);
+        return;
+      }
       const response = await fetch("/api/platform-setup?limit=80", {
         cache: "no-store",
       });
       if (!response.ok) throw new Error("Setup-Logs nicht verfügbar");
       const data = (await response.json()) as { logs?: PlatformSetupLog[] };
-      setSetupLogs(sortSetupLogs(data.logs ?? []));
+      const nextSetupLogs = sortSetupLogs(data.logs ?? []);
+      setupLogsCacheRef.current = {
+        hours: 1,
+        payload: nextSetupLogs,
+        updatedAt: Date.now(),
+      };
+      setSetupLogs(nextSetupLogs);
     } catch {
       setSetupLogs([]);
     }
@@ -2588,7 +2730,13 @@ export default function Home() {
       }
       setSetupLogs((current) => {
         const withoutOldVersion = current.filter((log) => log.id !== data.log!.id);
-        return sortSetupLogs([data.log!, ...withoutOldVersion]).slice(0, 80);
+        const nextLogs = sortSetupLogs([data.log!, ...withoutOldVersion]).slice(0, 80);
+        setupLogsCacheRef.current = {
+          hours: 1,
+          payload: nextLogs,
+          updatedAt: Date.now(),
+        };
+        return nextLogs;
       });
       setEditingSetupId(null);
       setSetupEditForm(null);
@@ -2639,6 +2787,13 @@ export default function Home() {
         throw new Error(data.error ?? "Löschen fehlgeschlagen");
       }
       setSetupLogs((current) => current.filter((log) => log.id !== id));
+      setupLogsCacheRef.current = setupLogsCacheRef.current
+        ? {
+            ...setupLogsCacheRef.current,
+            payload: setupLogsCacheRef.current.payload.filter((log) => log.id !== id),
+            updatedAt: Date.now(),
+          }
+        : null;
       if (editingSetupId === id) {
         cancelSetupEdit();
       }
@@ -2701,10 +2856,16 @@ export default function Home() {
         const withoutOldVersion = current.filter(
           (observation) => observation.id !== data.observation!.id,
         );
-        return sortSurfObservations([data.observation!, ...withoutOldVersion]).slice(
+        const nextObservations = sortSurfObservations([data.observation!, ...withoutOldVersion]).slice(
           0,
           200,
         );
+        observationsCacheRef.current = {
+          hours: observationsCacheRef.current?.hours ?? observationLearningHours,
+          payload: nextObservations,
+          updatedAt: Date.now(),
+        };
+        return nextObservations;
       });
       setEditingObservationId(null);
       setObservationEditForm(null);
@@ -2773,6 +2934,15 @@ export default function Home() {
       setObservations((current) =>
         current.filter((observation) => observation.id !== id),
       );
+      observationsCacheRef.current = observationsCacheRef.current
+        ? {
+            ...observationsCacheRef.current,
+            payload: observationsCacheRef.current.payload.filter(
+              (observation) => observation.id !== id,
+            ),
+            updatedAt: Date.now(),
+          }
+        : null;
       if (editingObservationId === id) {
         cancelObservationEdit();
       }
@@ -2789,22 +2959,24 @@ export default function Home() {
   useEffect(() => {
     const historyHours = reviewRangeHours(reviewRange);
     const runRefresh = () => {
-      void refresh(historyHours);
+      void refresh(historyHours, { mode: "range" });
     };
     const startup = window.setTimeout(runRefresh, 0);
-    const timer = window.setInterval(runRefresh, sampleInterval);
     return () => {
       window.clearTimeout(startup);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewRange.preset, reviewRange.fromDate, reviewRange.toDate]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refresh(liveRefreshHours, { mode: "live" });
+    }, sampleInterval);
+    return () => {
       window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    reviewRange.preset,
-    reviewRange.fromDate,
-    reviewRange.toDate,
-    forecastSettings.lagKroessbach,
-    forecastSettings.lagPuig,
-  ]);
+  }, []);
 
   const stationsById = useMemo(
     () => Object.fromEntries(payload.stations.map((station) => [station.id, station])),
@@ -2836,40 +3008,76 @@ export default function Home() {
     .map((station) => station.water.dt)
     .filter((value): value is number => typeof value === "number")
     .sort((a, b) => b - a)[0];
-  const forecastHistory = history.length
-    ? history
-    : compactHistory([historyPointFromPayload(payload)].filter(Boolean) as HistoryPoint[]);
-  const newestHistoryPoint = forecastHistory[forecastHistory.length - 1]?.t;
-  const forecastLine = shiftedForecast(
-    forecastHistory,
-    forecastSettings.lagKroessbach,
-    forecastSettings.lagPuig,
-    nowMs,
+  const forecastHistory = useMemo(
+    () =>
+      history.length
+        ? history
+        : compactHistory(
+            [historyPointFromPayload(payload)].filter(Boolean) as HistoryPoint[],
+          ),
+    [history, payload],
   );
-  const deltaLine = expectedDeltaSeries(
-    forecastLine,
-    forecastHistory,
-    forecastSettings.waveOffset,
-    forecastSettings.lagKroessbach,
-    forecastSettings.lagPuig,
+  const newestHistoryPoint = forecastHistory[forecastHistory.length - 1]?.t;
+  const forecastLine = useMemo(
+    () =>
+      shiftedForecast(
+        forecastHistory,
+        forecastSettings.lagKroessbach,
+        forecastSettings.lagPuig,
+        nowMs,
+      ),
+    [
+      forecastHistory,
+      forecastSettings.lagKroessbach,
+      forecastSettings.lagPuig,
+      nowMs,
+    ],
+  );
+  const deltaLine = useMemo(
+    () =>
+      expectedDeltaSeries(
+        forecastLine,
+        forecastHistory,
+        forecastSettings.waveOffset,
+        forecastSettings.lagKroessbach,
+        forecastSettings.lagPuig,
+      ),
+    [
+      forecastLine,
+      forecastHistory,
+      forecastSettings.waveOffset,
+      forecastSettings.lagKroessbach,
+      forecastSettings.lagPuig,
+    ],
   );
   const waveTime = mostRecent ?? forecastHistory[forecastHistory.length - 1]?.t ?? nowMs;
   const lastMeasurementTime = newestHistoryPoint ?? waveTime;
-  const baseTimeDomain = reviewRangeToDomain(
-    reviewRange,
-    forecastHistory,
-    Math.max(
-      forecastLine[forecastLine.length - 1]?.t ?? lastMeasurementTime,
-      lastMeasurementTime + sampleInterval,
-    ),
+  const baseTimeDomain = useMemo(
+    () =>
+      reviewRangeToDomain(
+        reviewRange,
+        forecastHistory,
+        Math.max(
+          forecastLine[forecastLine.length - 1]?.t ?? lastMeasurementTime,
+          lastMeasurementTime + sampleInterval,
+        ),
+      ),
+    [reviewRange, forecastHistory, forecastLine, lastMeasurementTime],
   );
-  const chartTimeDomain = zoomTimeDomain(baseTimeDomain, timeZoom);
+  const chartTimeDomain = useMemo(
+    () => zoomTimeDomain(baseTimeDomain, timeZoom),
+    [baseTimeDomain, timeZoom],
+  );
   const baseTimeSpan = baseTimeDomain.max - baseTimeDomain.min;
   const chartTimeSpan = chartTimeDomain.max - chartTimeDomain.min;
   const hasZoomableTimeAxis = baseTimeSpan > 90 * 60 * 1000;
   const canMoveTimeAxis = chartTimeSpan < baseTimeSpan - sampleInterval;
-  const visibleHistoryPoints = forecastHistory.filter(
-    (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
+  const visibleHistoryPoints = useMemo(
+    () =>
+      forecastHistory.filter(
+        (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
+      ),
+    [forecastHistory, chartTimeDomain],
   );
   const reportSessions = useMemo(
     () => buildReportSessions(observations),
@@ -2939,24 +3147,53 @@ export default function Home() {
     ).value ?? upstreamFlow;
   const expectedWaveDelta =
     valueAt(deltaLine, waveTime) ?? downstreamFlow - upstreamFlow;
-  const volumeBalance = volumeBalanceSummary(deltaLine, waveTime);
-  const visibleWeatherPoints = weatherPayload.history.filter(
-    (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
+  const volumeBalance = useMemo(
+    () => volumeBalanceSummary(deltaLine, waveTime),
+    [deltaLine, waveTime],
   );
-  const visibleWeatherForecast = (weatherPayload.forecast ?? []).filter(
-    (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
+  const visibleWeatherPoints = useMemo(
+    () =>
+      weatherPayload.history.filter(
+        (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
+      ),
+    [weatherPayload.history, chartTimeDomain],
   );
-  const visibleElectricityHistory = electricityPayload.history.filter(
-    (point) => point.t <= chartTimeDomain.max && point.end >= chartTimeDomain.min,
+  const visibleWeatherForecast = useMemo(
+    () =>
+      (weatherPayload.forecast ?? []).filter(
+        (point) => point.t >= chartTimeDomain.min && point.t <= chartTimeDomain.max,
+      ),
+    [weatherPayload.forecast, chartTimeDomain],
   );
-  const visibleElectricityForecast = electricityPayload.forecast.filter(
-    (point) => point.t <= chartTimeDomain.max && point.end >= chartTimeDomain.min,
+  const visibleElectricityHistory = useMemo(
+    () =>
+      electricityPayload.history.filter(
+        (point) => point.t <= chartTimeDomain.max && point.end >= chartTimeDomain.min,
+      ),
+    [electricityPayload.history, chartTimeDomain],
   );
-  const electricityCorrelation = electricityCorrelationSummary(
-    [...electricityPayload.history, ...electricityPayload.forecast],
-    deltaLine,
-    chartTimeDomain,
-    waveTime,
+  const visibleElectricityForecast = useMemo(
+    () =>
+      electricityPayload.forecast.filter(
+        (point) => point.t <= chartTimeDomain.max && point.end >= chartTimeDomain.min,
+      ),
+    [electricityPayload.forecast, chartTimeDomain],
+  );
+  const electricityCorrelation = useMemo(
+    () =>
+      electricityCorrelationSummary(
+        [...electricityPayload.history, ...electricityPayload.forecast],
+        deltaLine,
+        chartTimeDomain,
+        waveTime,
+      ),
+    [
+      electricityPayload.history,
+      electricityPayload.forecast,
+      deltaLine,
+      chartTimeDomain,
+      waveTime,
+    ],
   );
   const waveInflowTrend = inflowTrendAt(
     forecastHistory,
@@ -2967,8 +3204,11 @@ export default function Home() {
   const levelAtWave =
     latestAt(forecastHistory, waveTime, "reichenauLevel") ??
     valueOrNull(reichenau?.water.value);
-  const experienceTargets = learnedExperienceTargets(observations, waveTime);
-  const insightStats = spotInsightStats(observations);
+  const experienceTargets = useMemo(
+    () => learnedExperienceTargets(observations, waveTime),
+    [observations, waveTime],
+  );
+  const insightStats = useMemo(() => spotInsightStats(observations), [observations]);
   const qualityNowModelScore = waveQualityScore(
     expectedWaveDelta,
     upstreamAtWave,
@@ -2995,99 +3235,136 @@ export default function Home() {
     reichenau: downstreamFlow,
   });
   const qualityNowDataScore = blendDataQuality(qualityNowModelScore, dataNow);
-  const qualityNow: WaveQualityProjection = {
-    time: waveTime,
-    delta: expectedWaveDelta,
-    upstream: upstreamAtWave,
-    trend: waveInflowTrend,
-    level: levelAtWave,
-    volumeBalance60: volumeBalance.balance60,
-    modelScore: qualityNowModelScore,
-    data: dataNow,
-    dataScore: qualityNowDataScore,
-    manual: manualNow,
-    trimSuggestion: trimSuggestionNow,
-    score: blendManualQuality(qualityNowDataScore, manualNow, waveTime),
-  };
+  const qualityNow: WaveQualityProjection = useMemo(
+    () => ({
+      time: waveTime,
+      delta: expectedWaveDelta,
+      upstream: upstreamAtWave,
+      trend: waveInflowTrend,
+      level: levelAtWave,
+      volumeBalance60: volumeBalance.balance60,
+      modelScore: qualityNowModelScore,
+      data: dataNow,
+      dataScore: qualityNowDataScore,
+      manual: manualNow,
+      trimSuggestion: trimSuggestionNow,
+      score: blendManualQuality(qualityNowDataScore, manualNow, waveTime),
+    }),
+    [
+      waveTime,
+      expectedWaveDelta,
+      upstreamAtWave,
+      waveInflowTrend,
+      levelAtWave,
+      volumeBalance.balance60,
+      qualityNowModelScore,
+      dataNow,
+      qualityNowDataScore,
+      manualNow,
+      trimSuggestionNow,
+    ],
+  );
   const horizonEnd = waveTime + 2 * 60 * 60 * 1000;
-  const qualityCandidates = deltaLine
-    .filter(
-      (point): point is { t: number; value: number } =>
-        point.value !== null && point.t >= waveTime && point.t <= horizonEnd,
-    )
-    .map((point) => {
-      const upstream =
-        shiftedUpstreamAt(
-          forecastHistory,
-          point.t,
-          waveLagKroessbach,
-          waveLagPuig,
-        ).value ??
-        valueAt(forecastLine, point.t + forecastSettings.waveOffset * 60 * 1000) ??
-        upstreamAtWave;
-      const trend = inflowTrendAt(
-        forecastHistory,
-        point.t,
-        waveLagKroessbach,
-        waveLagPuig,
-      );
-      const level = latestAt(forecastHistory, point.t, "reichenauLevel") ?? levelAtWave;
-      const candidateVolumeBalance60 = integrateDeltaVolume(
-        deltaLine,
-        point.t - 60 * 60 * 1000,
-        point.t,
-      );
-      const modelScore = waveQualityScore(
-        point.value,
-        upstream,
-        level,
-        experienceTargets.flowMin,
-        experienceTargets.flowMax,
-        experienceTargets.levelMin,
-        experienceTargets.levelMax,
-        candidateVolumeBalance60,
-      );
-      const manual = recentManualSignal(observations, point.t);
-      const data = dataQualitySignal(observations, {
-        time: point.t,
-        delta: point.value,
-        upstream,
-        level,
-        reichenau: upstream + point.value,
-      });
-      const trimSuggestion = trimSuggestionSignal(observations, {
-        time: point.t,
-        delta: point.value,
-        upstream,
-        level,
-        reichenau: upstream + point.value,
-      });
-      const dataScore = blendDataQuality(modelScore, data);
-      return {
-        time: point.t,
-        delta: point.value,
-        upstream,
-        trend,
-        level,
-        volumeBalance60: candidateVolumeBalance60,
-        modelScore,
-        data,
-        dataScore,
-        manual,
-        trimSuggestion,
-        score: blendManualQuality(dataScore, manual, point.t),
-      };
-    });
-  const qualityTimeline = [...qualityCandidates, qualityNow]
-    .sort((a, b) => a.time - b.time)
-    .filter(
-      (point, index, points) =>
-        index === 0 || Math.abs(point.time - points[index - 1].time) > 60 * 1000,
-    );
-  const runtimeComparison = runtimeComparisonSummary(
-    forecastHistory,
-    forecastSettings,
-    chartTimeDomain,
+  const qualityCandidates = useMemo(
+    () =>
+      deltaLine
+        .filter(
+          (point): point is { t: number; value: number } =>
+            point.value !== null && point.t >= waveTime && point.t <= horizonEnd,
+        )
+        .map((point) => {
+          const upstream =
+            shiftedUpstreamAt(
+              forecastHistory,
+              point.t,
+              waveLagKroessbach,
+              waveLagPuig,
+            ).value ??
+            valueAt(forecastLine, point.t + forecastSettings.waveOffset * 60 * 1000) ??
+            upstreamAtWave;
+          const trend = inflowTrendAt(
+            forecastHistory,
+            point.t,
+            waveLagKroessbach,
+            waveLagPuig,
+          );
+          const level =
+            latestAt(forecastHistory, point.t, "reichenauLevel") ?? levelAtWave;
+          const candidateVolumeBalance60 = integrateDeltaVolume(
+            deltaLine,
+            point.t - 60 * 60 * 1000,
+            point.t,
+          );
+          const modelScore = waveQualityScore(
+            point.value,
+            upstream,
+            level,
+            experienceTargets.flowMin,
+            experienceTargets.flowMax,
+            experienceTargets.levelMin,
+            experienceTargets.levelMax,
+            candidateVolumeBalance60,
+          );
+          const manual = recentManualSignal(observations, point.t);
+          const data = dataQualitySignal(observations, {
+            time: point.t,
+            delta: point.value,
+            upstream,
+            level,
+            reichenau: upstream + point.value,
+          });
+          const trimSuggestion = trimSuggestionSignal(observations, {
+            time: point.t,
+            delta: point.value,
+            upstream,
+            level,
+            reichenau: upstream + point.value,
+          });
+          const dataScore = blendDataQuality(modelScore, data);
+          return {
+            time: point.t,
+            delta: point.value,
+            upstream,
+            trend,
+            level,
+            volumeBalance60: candidateVolumeBalance60,
+            modelScore,
+            data,
+            dataScore,
+            manual,
+            trimSuggestion,
+            score: blendManualQuality(dataScore, manual, point.t),
+          };
+        }),
+    [
+      deltaLine,
+      waveTime,
+      horizonEnd,
+      forecastHistory,
+      waveLagKroessbach,
+      waveLagPuig,
+      forecastLine,
+      forecastSettings.waveOffset,
+      upstreamAtWave,
+      levelAtWave,
+      experienceTargets,
+      observations,
+    ],
+  );
+  const qualityTimeline = useMemo(
+    () =>
+      [...qualityCandidates, qualityNow]
+        .sort((a, b) => a.time - b.time)
+        .filter(
+          (point, index, points) =>
+            index === 0 ||
+            Math.abs(point.time - points[index - 1].time) > 60 * 1000,
+        ),
+    [qualityCandidates, qualityNow],
+  );
+  const runtimeComparison = useMemo(
+    () => runtimeComparisonSummary(forecastHistory, forecastSettings, chartTimeDomain),
+    [forecastHistory, forecastSettings, chartTimeDomain],
   );
   const runtimeRecommendationHint = runtimeComparison.recommendation;
   const forecastArrivalKroessbach =
@@ -3338,7 +3615,16 @@ export default function Home() {
         <div className="refresh-panel">
           <span>{loading ? "Aktualisiere" : "Stand"}</span>
           <strong>{formatDate(mostRecent ?? payload.fetchedAt)}</strong>
-          <button type="button" onClick={refresh} aria-label="Daten aktualisieren">
+          <button
+            type="button"
+            onClick={() =>
+              void refresh(reviewRangeHours(reviewRange), {
+                mode: "manual",
+                force: true,
+              })
+            }
+            aria-label="Daten aktualisieren"
+          >
             ↻
           </button>
         </div>
@@ -3658,7 +3944,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.85.260824 · Autor: Kilian Zotz · Quelle: {payload.source} +
+        Version 0.86.260824 · Autor: Kilian Zotz · Quelle: {payload.source} +
         GeoSphere Austria + aWATTar. Messstellen: 202283, 201574, 201624,
         RiverApp Gärberbach.
       </footer>
