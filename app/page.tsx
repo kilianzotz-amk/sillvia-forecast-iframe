@@ -4104,7 +4104,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.88.260826 · Autor: Kilian Zotz · Quelle: {payload.source} +
+        Version 0.89.260826 · Autor: Kilian Zotz · Quelle: {payload.source} +
         GeoSphere Austria + aWATTar. Messstellen: 202283, 201574, 201624,
         RiverApp Gärberbach.
       </footer>
@@ -5960,9 +5960,9 @@ function SurfForecastChart({
   const trimMax = rawTrimMax + trimRange * 0.12;
   const showTrim = visible.trim;
   const width = 820;
-  const height = showTrim ? 470 : 410;
-  const trimPlot = { top: 24, height: 48 };
-  const plot = { left: 58, top: showTrim ? 124 : 78, right: 44, bottom: 42 };
+  const height = showTrim ? 540 : 430;
+  const trimPlot = { top: 112, height: 44 };
+  const plot = { left: 58, top: showTrim ? 182 : 112, right: 44, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6003,9 +6003,15 @@ function SurfForecastChart({
       {timeControl ? <div className="forecast-chart-controls">{timeControl}</div> : null}
       <svg viewBox={`0 0 ${width} ${height}`} role="img">
         <title>Abfluss im Verhältnis zur Zeit</title>
+        <text className="chart-title" x={plot.left} y={18}>
+          Abfluss im Zeitverlauf
+        </text>
+        <text className="chart-subtitle" x={plot.left} y={35}>
+          Krössbach, Puig, Reichenau und Forecast mit Laufzeitkorrektur
+        </text>
         {showTrim ? (
           <g>
-            <text className="trim-title" x={plot.left} y={16}>
+            <text className="trim-title" x={plot.left} y={102}>
               Trim cm
             </text>
             <line
@@ -6061,6 +6067,11 @@ function SurfForecastChart({
             ))}
           </g>
         ) : null}
+        {visible.quality
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth, {
+              top: 58,
+            })
+          : null}
         {gridTicks.map((tick) => (
           <line
             key={tick.t}
@@ -6079,9 +6090,6 @@ function SurfForecastChart({
           height={surfHeight}
           opacity={visible.range ? 1 : 0}
         />
-        {visible.quality
-          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
-          : null}
         {yTicks.map((tick) => (
           <g key={tick}>
             <line
@@ -6253,8 +6261,8 @@ function SurfDeltaChart({
   const minValue = -maxAbs;
   const maxValue = maxAbs;
   const width = 820;
-  const height = 292;
-  const plot = { left: 58, top: 88, right: 20, bottom: 42 };
+  const height = 330;
+  const plot = { left: 58, top: 112, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6282,7 +6290,9 @@ function SurfDeltaChart({
           Abfluss Reichenau - Summe Puig/Krössbach mit Laufzeitkorrektur
         </text>
         {visible.quality
-          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth, {
+              top: 58,
+            })
           : null}
         {gridTicks.map((tick) => (
           <line
@@ -6475,8 +6485,8 @@ function ElectricityChart({
   const minValue = rawMinValue - valueRange * 0.12;
   const maxValue = rawMaxValue + valueRange * 0.15;
   const width = 820;
-  const height = 322;
-  const plot = { left: 64, top: 86, right: 24, bottom: 42 };
+  const height = 350;
+  const plot = { left: 64, top: 112, right: 24, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6503,7 +6513,9 @@ function ElectricityChart({
           aWATTar Spotpreis in €/MWh
         </text>
         {showQuality
-          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth, {
+              top: 58,
+            })
           : null}
         {gridTicks.map((tick) => (
           <line
@@ -6613,8 +6625,8 @@ function SurfVolumeBalanceChart({
   const minValue = -maxAbs;
   const maxValue = maxAbs;
   const width = 820;
-  const height = 312;
-  const plot = { left: 72, top: 104, right: 24, bottom: 42 };
+  const height = 340;
+  const plot = { left: 72, top: 112, right: 24, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6673,7 +6685,9 @@ function SurfVolumeBalanceChart({
           Rollende {windowMinutes} min aus Delta m³/s integriert
         </text>
         {showQuality
-          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth, {
+              top: 58,
+            })
           : null}
         {gridTicks.map((tick) => (
           <line
@@ -6847,8 +6861,8 @@ function RainfallChart({
   const maxT = timeDomain.max;
   const maxValue = Math.max(1, ...allValues) * 1.22;
   const width = 820;
-  const height = 332;
-  const plot = { left: 58, top: 84, right: 24, bottom: 42 };
+  const height = 360;
+  const plot = { left: 58, top: 112, right: 24, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6874,7 +6888,9 @@ function RainfallChart({
           10-min Regenwerte in mm, gleiche Zeitachse wie Abfluss und Pegel
         </text>
         {visible.quality
-          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth, {
+              top: 58,
+            })
           : null}
         {gridTicks.map((tick) => (
           <line
@@ -7064,8 +7080,8 @@ function SurfLevelChart({
   const minValue = Math.max(0, rawMinValue - valueRange * 0.08);
   const maxValue = rawMaxValue + valueRange * 0.12;
   const width = 820;
-  const height = 342;
-  const plot = { left: 58, top: 72, right: 20, bottom: 42 };
+  const height = 370;
+  const plot = { left: 58, top: 112, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -7093,8 +7109,13 @@ function SurfLevelChart({
         <text className="chart-title" x={plot.left} y={16}>
           Pegel im Zeitverlauf
         </text>
+        <text className="chart-subtitle" x={plot.left} y={33}>
+          Krössbach, Puig, Gärberbach und Reichenau in cm
+        </text>
         {visible.quality
-          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth, {
+              top: 58,
+            })
           : null}
         {gridTicks.map((tick) => (
           <line
@@ -7309,6 +7330,7 @@ function qualityOverlayElements(
   x: (time: number) => number,
   plot: { left: number; top: number; right: number; bottom: number },
   plotWidth: number,
+  options: { top?: number } = {},
 ) {
   const visiblePoints = points.filter(
     (point) => point.t >= timeDomain.min && point.t <= timeDomain.max,
@@ -7316,7 +7338,7 @@ function qualityOverlayElements(
   if (!visiblePoints.length) return null;
 
   const bandHeight = 22;
-  const bandTop = Math.max(22, plot.top - 44);
+  const bandTop = options.top ?? Math.max(54, plot.top - 44);
   const y = (score: number) =>
     bandTop + bandHeight - (clamp(score, 0, 100) / 100) * bandHeight;
   const curvePoints = visiblePoints.filter((point) => point.source !== "session");
