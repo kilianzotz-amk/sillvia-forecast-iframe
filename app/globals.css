@@ -1951,8 +1951,8 @@ h3 {
 }
 
 .quality-overlay-band {
-  fill: rgba(255, 255, 255, 0.72);
-  stroke: rgba(96, 116, 123, 0.16);
+  fill: rgba(255, 255, 255, 0.84);
+  stroke: rgba(96, 116, 123, 0.14);
   stroke-width: 1;
 }
 
@@ -1966,22 +1966,27 @@ h3 {
 }
 
 .quality-overlay-title {
-  font-size: 0.56rem;
+  font-size: 0.52rem;
 }
 
 .quality-overlay-label {
-  font-size: 0.52rem;
+  font-size: 0.5rem;
 }
 
 .quality-overlay-line {
   fill: none;
-  opacity: 0.82;
+  opacity: 0.72;
   stroke-linecap: round;
-  stroke-width: 2.2;
+  stroke-width: 1.8;
+}
+
+.quality-overlay-line.model {
+  opacity: 0.58;
 }
 
 .quality-overlay-line.forecast {
   stroke-dasharray: 4 5;
+  opacity: 0.76;
 }
 
 .quality-overlay-dot {

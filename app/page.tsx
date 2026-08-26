@@ -253,7 +253,7 @@ type WaveQualityProjection = {
 type QualityOverlayPoint = {
   t: number;
   score: number;
-  source: "session" | "forecast";
+  source: "model" | "session" | "forecast";
 };
 
 type RuntimeComparisonPoint = {
@@ -991,11 +991,87 @@ function qualityColor(score: number) {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function qualityOverlayFrom(
-  observations: SurfObservation[],
-  projections: WaveQualityProjection[],
-  referenceTime: number,
-): QualityOverlayPoint[] {
+function qualityOverlayFrom({
+  observations,
+  projections,
+  history,
+  deltaLine,
+  referenceTime,
+  waveLagKroessbach,
+  waveLagPuig,
+  experienceTargets,
+}: {
+  observations: SurfObservation[];
+  projections: WaveQualityProjection[];
+  history: HistoryPoint[];
+  deltaLine: { t: number; value: number | null }[];
+  referenceTime: number;
+  waveLagKroessbach: number;
+  waveLagPuig: number;
+  experienceTargets: {
+    flowMin: number;
+    flowMax: number;
+    levelMin: number;
+    levelMax: number;
+  };
+}): QualityOverlayPoint[] {
+  const modelSource = history
+    .filter((point) => point.t <= referenceTime)
+    .sort((a, b) => a.t - b.t);
+  const modelStride = Math.max(1, Math.ceil(modelSource.length / 420));
+  const modelQuality = modelSource
+    .filter((_, index) => index % modelStride === 0 || index === modelSource.length - 1)
+    .map((point) => {
+      const delta = valueAt(deltaLine, point.t);
+      const shiftedUpstream = shiftedUpstreamAt(
+        history,
+        point.t,
+        waveLagKroessbach,
+        waveLagPuig,
+        sampleInterval * 3,
+      ).value;
+      const directUpstream =
+        point.kroessbach === null && point.puig === null
+          ? null
+          : (point.kroessbach ?? 0) + (point.puig ?? 0);
+      const upstream = shiftedUpstream ?? directUpstream;
+
+      if (delta === null || upstream === null) return null;
+
+      const level = point.reichenauLevel;
+      const reichenau = point.reichenau ?? upstream + delta;
+      const balance60 = integrateDeltaVolume(
+        deltaLine,
+        point.t - 60 * 60 * 1000,
+        point.t,
+      );
+      const modelScore = waveQualityScore(
+        delta,
+        upstream,
+        level,
+        experienceTargets.flowMin,
+        experienceTargets.flowMax,
+        experienceTargets.levelMin,
+        experienceTargets.levelMax,
+        balance60,
+      );
+      const data = dataQualitySignal(observations, {
+        time: point.t,
+        delta,
+        upstream,
+        level,
+        reichenau,
+      });
+      const dataScore = blendDataQuality(modelScore, data);
+      const manual = recentManualSignal(observations, point.t);
+
+      return {
+        t: point.t,
+        score: blendManualQuality(dataScore, manual, point.t),
+        source: "model" as const,
+      };
+    })
+    .filter((point): point is QualityOverlayPoint => point !== null);
   const sessionQuality = observations
     .filter(isRealObservation)
     .map((observation) => ({
@@ -1011,7 +1087,9 @@ function qualityOverlayFrom(
       source: "forecast" as const,
     }));
 
-  return [...sessionQuality, ...forecastQuality].sort((a, b) => a.t - b.t);
+  return [...modelQuality, ...sessionQuality, ...forecastQuality].sort(
+    (a, b) => a.t - b.t,
+  );
 }
 
 function inflowTrendLabel(delta60: number | null) {
@@ -3416,8 +3494,27 @@ export default function Home() {
     [qualityCandidates, qualityNow],
   );
   const qualityOverlay = useMemo(
-    () => qualityOverlayFrom(observations, qualityTimeline, waveTime),
-    [observations, qualityTimeline, waveTime],
+    () =>
+      qualityOverlayFrom({
+        observations,
+        projections: qualityTimeline,
+        history: visibleHistoryPoints,
+        deltaLine,
+        referenceTime: waveTime,
+        waveLagKroessbach,
+        waveLagPuig,
+        experienceTargets,
+      }),
+    [
+      observations,
+      qualityTimeline,
+      visibleHistoryPoints,
+      deltaLine,
+      waveTime,
+      waveLagKroessbach,
+      waveLagPuig,
+      experienceTargets,
+    ],
   );
   const runtimeComparison = useMemo(
     () => runtimeComparisonSummary(forecastHistory, forecastSettings, chartTimeDomain),
@@ -4007,7 +4104,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.87.260826 · Autor: Kilian Zotz · Quelle: {payload.source} +
+        Version 0.88.260826 · Autor: Kilian Zotz · Quelle: {payload.source} +
         GeoSphere Austria + aWATTar. Messstellen: 202283, 201574, 201624,
         RiverApp Gärberbach.
       </footer>
@@ -5863,9 +5960,9 @@ function SurfForecastChart({
   const trimMax = rawTrimMax + trimRange * 0.12;
   const showTrim = visible.trim;
   const width = 820;
-  const height = showTrim ? 430 : 360;
+  const height = showTrim ? 470 : 410;
   const trimPlot = { top: 24, height: 48 };
-  const plot = { left: 58, top: showTrim ? 100 : 20, right: 44, bottom: 42 };
+  const plot = { left: 58, top: showTrim ? 124 : 78, right: 44, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6156,8 +6253,8 @@ function SurfDeltaChart({
   const minValue = -maxAbs;
   const maxValue = maxAbs;
   const width = 820;
-  const height = 250;
-  const plot = { left: 58, top: 44, right: 20, bottom: 42 };
+  const height = 292;
+  const plot = { left: 58, top: 88, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6378,8 +6475,8 @@ function ElectricityChart({
   const minValue = rawMinValue - valueRange * 0.12;
   const maxValue = rawMaxValue + valueRange * 0.15;
   const width = 820;
-  const height = 280;
-  const plot = { left: 64, top: 42, right: 24, bottom: 42 };
+  const height = 322;
+  const plot = { left: 64, top: 86, right: 24, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6516,8 +6613,8 @@ function SurfVolumeBalanceChart({
   const minValue = -maxAbs;
   const maxValue = maxAbs;
   const width = 820;
-  const height = 270;
-  const plot = { left: 72, top: 60, right: 24, bottom: 42 };
+  const height = 312;
+  const plot = { left: 72, top: 104, right: 24, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6750,8 +6847,8 @@ function RainfallChart({
   const maxT = timeDomain.max;
   const maxValue = Math.max(1, ...allValues) * 1.22;
   const width = 820;
-  const height = 290;
-  const plot = { left: 58, top: 40, right: 24, bottom: 42 };
+  const height = 332;
+  const plot = { left: 58, top: 84, right: 24, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -6967,8 +7064,8 @@ function SurfLevelChart({
   const minValue = Math.max(0, rawMinValue - valueRange * 0.08);
   const maxValue = rawMaxValue + valueRange * 0.12;
   const width = 820;
-  const height = 300;
-  const plot = { left: 58, top: 26, right: 20, bottom: 42 };
+  const height = 342;
+  const plot = { left: 58, top: 72, right: 20, bottom: 42 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
   const x = (t: number) =>
@@ -7218,13 +7315,37 @@ function qualityOverlayElements(
   );
   if (!visiblePoints.length) return null;
 
-  const bandHeight = 30;
-  const bandTop = plot.top + 7;
+  const bandHeight = 22;
+  const bandTop = Math.max(22, plot.top - 44);
   const y = (score: number) =>
     bandTop + bandHeight - (clamp(score, 0, 100) / 100) * bandHeight;
-  const labelledPoints = visiblePoints.reduce<QualityOverlayPoint[]>((labels, point) => {
+  const curvePoints = visiblePoints.filter((point) => point.source !== "session");
+  const sessionDots = visiblePoints.filter((point) => point.source === "session");
+  const forecastDots = curvePoints
+    .filter((point) => point.source === "forecast")
+    .reduce<QualityOverlayPoint[]>((dots, point, index, sourcePoints) => {
+      const previous = dots[dots.length - 1];
+      if (
+        !previous ||
+        Math.abs(x(point.t) - x(previous.t)) >= 22 ||
+        point === sourcePoints.at(-1)
+      ) {
+        dots.push(point);
+      }
+      return dots;
+    }, []);
+  const labelCandidates = [
+    curvePoints[0],
+    ...sessionDots,
+    curvePoints[curvePoints.length - 1],
+  ].filter((point): point is QualityOverlayPoint => Boolean(point));
+  const labelledPoints = labelCandidates.reduce<QualityOverlayPoint[]>((labels, point) => {
     const previous = labels[labels.length - 1];
-    if (!previous || x(point.t) - x(previous.t) >= 52 || point === visiblePoints.at(-1)) {
+    if (
+      !previous ||
+      Math.abs(x(point.t) - x(previous.t)) >= 96 ||
+      point === labelCandidates.at(-1)
+    ) {
       labels.push(point);
     }
     return labels;
@@ -7243,8 +7364,8 @@ function qualityOverlayElements(
       <text className="quality-overlay-title" x={plot.left + 8} y={bandTop - 5}>
         Wellenqualität %
       </text>
-      {visiblePoints.slice(1).map((point, index) => {
-        const previous = visiblePoints[index];
+      {curvePoints.slice(1).map((point, index) => {
+        const previous = curvePoints[index];
         const averageScore = (previous.score + point.score) / 2;
         return (
           <line
@@ -7252,7 +7373,7 @@ function qualityOverlayElements(
             className={`quality-overlay-line ${
               previous.source === "forecast" || point.source === "forecast"
                 ? "forecast"
-                : "session"
+                : "model"
             }`}
             x1={x(previous.t)}
             x2={x(point.t)}
@@ -7262,7 +7383,7 @@ function qualityOverlayElements(
           />
         );
       })}
-      {visiblePoints.map((point) => (
+      {[...sessionDots, ...forecastDots].map((point) => (
         <circle
           key={`${point.source}-${point.t}`}
           className={`quality-overlay-dot ${point.source}`}
@@ -7272,9 +7393,13 @@ function qualityOverlayElements(
           style={{ fill: qualityColor(point.score) }}
         >
           <title>
-            {`${point.source === "session" ? "Wellenmeister" : "Forecast"} ${formatTime(
-              point.t,
-            )} · ${point.score} %`}
+            {`${
+              point.source === "session"
+                ? "Wellenmeister"
+                : point.source === "forecast"
+                  ? "Forecast"
+                  : "Modell"
+            } ${formatTime(point.t)} · ${point.score} %`}
           </title>
         </circle>
       ))}
