@@ -250,6 +250,12 @@ type WaveQualityProjection = {
   trimSuggestion: TrimSuggestion;
 };
 
+type QualityOverlayPoint = {
+  t: number;
+  score: number;
+  source: "session" | "forecast";
+};
+
 type RuntimeComparisonPoint = {
   t: number;
   expected: number;
@@ -366,6 +372,7 @@ type CacheEntry<T> = {
 };
 
 type FlowSeriesKey =
+  | "quality"
   | "trim"
   | "kroessbach"
   | "puig"
@@ -375,11 +382,12 @@ type FlowSeriesKey =
   | "session"
   | "range";
 
-type DeltaSeriesKey = "delta";
+type DeltaSeriesKey = "delta" | "quality";
 
 type VolumeWindowMinutes = 30 | 60 | 120;
 
 type LevelSeriesKey =
+  | "quality"
   | "kroessbach"
   | "puig"
   | "gaerberbach"
@@ -388,6 +396,7 @@ type LevelSeriesKey =
   | "range";
 
 type RainSeriesKey =
+  | "quality"
   | "area"
   | "forecast"
   | "innsbruck_uni"
@@ -959,6 +968,50 @@ function qualityTone(score: number) {
   if (score >= 75) return "good";
   if (score >= 50) return "ok";
   return "bad";
+}
+
+function qualityColor(score: number) {
+  const value = clamp(score, 0, 100) / 100;
+  const stops =
+    value < 0.5
+      ? {
+          start: [182, 79, 69],
+          end: [190, 126, 24],
+          mix: value / 0.5,
+        }
+      : {
+          start: [190, 126, 24],
+          end: [63, 124, 72],
+          mix: (value - 0.5) / 0.5,
+        };
+  const [r, g, b] = stops.start.map((channel, index) =>
+    Math.round(channel + (stops.end[index] - channel) * stops.mix),
+  );
+
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function qualityOverlayFrom(
+  observations: SurfObservation[],
+  projections: WaveQualityProjection[],
+  referenceTime: number,
+): QualityOverlayPoint[] {
+  const sessionQuality = observations
+    .filter(isRealObservation)
+    .map((observation) => ({
+      t: observation.observedAt,
+      score: Math.round(observationScore(observation.quality)),
+      source: "session" as const,
+    }));
+  const forecastQuality = projections
+    .filter((projection) => projection.time >= referenceTime)
+    .map((projection) => ({
+      t: projection.time,
+      score: projection.score,
+      source: "forecast" as const,
+    }));
+
+  return [...sessionQuality, ...forecastQuality].sort((a, b) => a.t - b.t);
 }
 
 function inflowTrendLabel(delta60: number | null) {
@@ -3362,6 +3415,10 @@ export default function Home() {
         ),
     [qualityCandidates, qualityNow],
   );
+  const qualityOverlay = useMemo(
+    () => qualityOverlayFrom(observations, qualityTimeline, waveTime),
+    [observations, qualityTimeline, waveTime],
+  );
   const runtimeComparison = useMemo(
     () => runtimeComparisonSummary(forecastHistory, forecastSettings, chartTimeDomain),
     [forecastHistory, forecastSettings, chartTimeDomain],
@@ -3810,6 +3867,7 @@ export default function Home() {
                 <SurfForecastChart
                   history={forecastHistory}
                   forecast={forecastLine}
+                  qualityOverlay={qualityOverlay}
                   timeDomain={chartTimeDomain}
                   markerTime={lastMeasurementTime}
                   surfMin={Math.min(experienceTargets.flowMin, experienceTargets.flowMax)}
@@ -3834,6 +3892,7 @@ export default function Home() {
                 />
                 <SurfLevelChart
                   history={forecastHistory}
+                  qualityOverlay={qualityOverlay}
                   timeDomain={chartTimeDomain}
                   markerTime={lastMeasurementTime}
                   levelMin={Math.min(experienceTargets.levelMin, experienceTargets.levelMax)}
@@ -3842,6 +3901,7 @@ export default function Home() {
                 />
                 <SurfDeltaChart
                   delta={deltaLine}
+                  qualityOverlay={qualityOverlay}
                   timeDomain={chartTimeDomain}
                   markerTime={waveTime}
                 />
@@ -3849,6 +3909,7 @@ export default function Home() {
                   weather={weatherPayload}
                   visiblePoints={visibleWeatherPoints}
                   visibleForecast={visibleWeatherForecast}
+                  qualityOverlay={qualityOverlay}
                   timeDomain={chartTimeDomain}
                   markerTime={lastMeasurementTime}
                   error={weatherError}
@@ -3857,6 +3918,7 @@ export default function Home() {
                   payload={electricityPayload}
                   visibleHistory={visibleElectricityHistory}
                   visibleForecast={visibleElectricityForecast}
+                  qualityOverlay={qualityOverlay}
                   timeDomain={chartTimeDomain}
                   markerTime={waveTime}
                   summary={electricityCorrelation}
@@ -3866,6 +3928,7 @@ export default function Home() {
                   balance30Series={volumeBalance.rolling30}
                   balance60Series={volumeBalance.rolling60}
                   balance120Series={volumeBalance.rolling120}
+                  qualityOverlay={qualityOverlay}
                   timeDomain={chartTimeDomain}
                   markerTime={waveTime}
                   balance30={volumeBalance.balance30}
@@ -3944,7 +4007,7 @@ export default function Home() {
       />
 
       <footer className="source-line">
-        Version 0.86.260824 · Autor: Kilian Zotz · Quelle: {payload.source} +
+        Version 0.87.260826 · Autor: Kilian Zotz · Quelle: {payload.source} +
         GeoSphere Austria + aWATTar. Messstellen: 202283, 201574, 201624,
         RiverApp Gärberbach.
       </footer>
@@ -5699,6 +5762,7 @@ function RuntimeCorrelationPanel({
 function SurfForecastChart({
   history,
   forecast,
+  qualityOverlay,
   timeDomain,
   markerTime,
   surfMin,
@@ -5708,6 +5772,7 @@ function SurfForecastChart({
 }: {
   history: HistoryPoint[];
   forecast: { t: number; value: number | null }[];
+  qualityOverlay: QualityOverlayPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
   surfMin: number;
@@ -5716,6 +5781,7 @@ function SurfForecastChart({
   timeControl?: ReactNode;
 }) {
   const [visible, setVisible] = useState<Record<FlowSeriesKey, boolean>>({
+    quality: true,
     trim: true,
     kroessbach: true,
     puig: true,
@@ -5916,6 +5982,9 @@ function SurfForecastChart({
           height={surfHeight}
           opacity={visible.range ? 1 : 0}
         />
+        {visible.quality
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          : null}
         {yTicks.map((tick) => (
           <g key={tick}>
             <line
@@ -6031,6 +6100,9 @@ function SurfForecastChart({
         <LegendToggle name="trim" active={visible.trim} onClick={() => toggle("trim")}>
           Trim cm
         </LegendToggle>
+        <LegendToggle name="quality-overlay" active={visible.quality} onClick={() => toggle("quality")}>
+          Wellenqualität %
+        </LegendToggle>
         <LegendToggle name="kroessbach" active={visible.kroessbach} onClick={() => toggle("kroessbach")}>
           Krössbach
         </LegendToggle>
@@ -6059,15 +6131,18 @@ function SurfForecastChart({
 
 function SurfDeltaChart({
   delta,
+  qualityOverlay,
   timeDomain,
   markerTime,
 }: {
   delta: { t: number; value: number | null }[];
+  qualityOverlay: QualityOverlayPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
 }) {
   const [visible, setVisible] = useState<Record<DeltaSeriesKey, boolean>>({
     delta: true,
+    quality: true,
   });
   const inTimeDomain = (point: { t: number }) =>
     point.t >= timeDomain.min && point.t <= timeDomain.max;
@@ -6109,6 +6184,9 @@ function SurfDeltaChart({
         <text className="chart-subtitle" x={plot.left} y={31}>
           Abfluss Reichenau - Summe Puig/Krössbach mit Laufzeitkorrektur
         </text>
+        {visible.quality
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          : null}
         {gridTicks.map((tick) => (
           <line
             key={tick.t}
@@ -6179,6 +6257,15 @@ function SurfDeltaChart({
         >
           Delta Welle
         </LegendToggle>
+        <LegendToggle
+          name="quality-overlay"
+          active={visible.quality}
+          onClick={() =>
+            setVisible((current) => ({ ...current, quality: !current.quality }))
+          }
+        >
+          Wellenqualität %
+        </LegendToggle>
       </div>
     </div>
   );
@@ -6188,6 +6275,7 @@ function ElectricitySection({
   payload,
   visibleHistory,
   visibleForecast,
+  qualityOverlay,
   timeDomain,
   markerTime,
   summary,
@@ -6196,6 +6284,7 @@ function ElectricitySection({
   payload: ElectricityPayload;
   visibleHistory: ElectricityPricePoint[];
   visibleForecast: ElectricityPricePoint[];
+  qualityOverlay: QualityOverlayPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
   summary: ElectricityCorrelationSummary;
@@ -6243,6 +6332,7 @@ function ElectricitySection({
       <ElectricityChart
         history={visibleHistory}
         forecast={visibleForecast}
+        qualityOverlay={qualityOverlay}
         timeDomain={timeDomain}
         markerTime={markerTime}
       />
@@ -6258,14 +6348,17 @@ function ElectricitySection({
 function ElectricityChart({
   history,
   forecast,
+  qualityOverlay,
   timeDomain,
   markerTime,
 }: {
   history: ElectricityPricePoint[];
   forecast: ElectricityPricePoint[];
+  qualityOverlay: QualityOverlayPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
 }) {
+  const [showQuality, setShowQuality] = useState(true);
   const historySeries = history.map((point) => ({
     t: point.t,
     value: point.marketPriceEurMwh,
@@ -6312,6 +6405,9 @@ function ElectricityChart({
         <text className="chart-subtitle" x={plot.left} y={34}>
           aWATTar Spotpreis in €/MWh
         </text>
+        {showQuality
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          : null}
         {gridTicks.map((tick) => (
           <line
             key={tick.t}
@@ -6362,6 +6458,13 @@ function ElectricityChart({
         />
       </svg>
       <div className="chart-legend">
+        <LegendToggle
+          name="quality-overlay"
+          active={showQuality}
+          onClick={() => setShowQuality((current) => !current)}
+        >
+          Wellenqualität %
+        </LegendToggle>
         <span className="legend-static electricity">aWATTar gemessen</span>
         <span className="legend-static electricity-forecast">aWATTar Forecast</span>
       </div>
@@ -6373,6 +6476,7 @@ function SurfVolumeBalanceChart({
   balance30Series,
   balance60Series,
   balance120Series,
+  qualityOverlay,
   timeDomain,
   markerTime,
   balance30,
@@ -6382,6 +6486,7 @@ function SurfVolumeBalanceChart({
   balance30Series: { t: number; value: number | null }[];
   balance60Series: { t: number; value: number | null }[];
   balance120Series: { t: number; value: number | null }[];
+  qualityOverlay: QualityOverlayPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
   balance30: number | null;
@@ -6389,6 +6494,7 @@ function SurfVolumeBalanceChart({
   balance120: number | null;
 }) {
   const [windowMinutes, setWindowMinutes] = useState<VolumeWindowMinutes>(60);
+  const [showQuality, setShowQuality] = useState(true);
   const balanceByWindow = {
     30: { current: balance30, series: balance30Series },
     60: { current: balance60, series: balance60Series },
@@ -6469,6 +6575,9 @@ function SurfVolumeBalanceChart({
         <text className="chart-subtitle" x={plot.left} y={34}>
           Rollende {windowMinutes} min aus Delta m³/s integriert
         </text>
+        {showQuality
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          : null}
         {gridTicks.map((tick) => (
           <line
             key={tick.t}
@@ -6530,6 +6639,13 @@ function SurfVolumeBalanceChart({
         <path className="line volume" d={linePath(visibleBalance, x, y)} />
       </svg>
       <div className="chart-legend">
+        <LegendToggle
+          name="quality-overlay"
+          active={showQuality}
+          onClick={() => setShowQuality((current) => !current)}
+        >
+          Wellenqualität %
+        </LegendToggle>
         <span className="legend-static volume">Volumenbilanz {windowMinutes} min</span>
       </div>
     </div>
@@ -6540,6 +6656,7 @@ function RainfallSection({
   weather,
   visiblePoints,
   visibleForecast,
+  qualityOverlay,
   timeDomain,
   markerTime,
   error,
@@ -6547,6 +6664,7 @@ function RainfallSection({
   weather: WeatherPayload;
   visiblePoints: WeatherPoint[];
   visibleForecast: WeatherPoint[];
+  qualityOverlay: QualityOverlayPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
   error: string;
@@ -6570,6 +6688,7 @@ function RainfallSection({
         stations={weather.stations}
         points={visiblePoints}
         forecast={visibleForecast}
+        qualityOverlay={qualityOverlay}
         timeDomain={timeDomain}
         markerTime={markerTime}
       />
@@ -6586,16 +6705,19 @@ function RainfallChart({
   stations,
   points,
   forecast,
+  qualityOverlay,
   timeDomain,
   markerTime,
 }: {
   stations: WeatherStation[];
   points: WeatherPoint[];
   forecast: WeatherPoint[];
+  qualityOverlay: QualityOverlayPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
 }) {
   const [visible, setVisible] = useState<Record<RainSeriesKey, boolean>>({
+    quality: true,
     area: true,
     forecast: true,
     innsbruck_uni: false,
@@ -6654,6 +6776,9 @@ function RainfallChart({
         <text className="chart-subtitle" x={plot.left} y={34}>
           10-min Regenwerte in mm, gleiche Zeitachse wie Abfluss und Pegel
         </text>
+        {visible.quality
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          : null}
         {gridTicks.map((tick) => (
           <line
             key={tick.t}
@@ -6726,6 +6851,13 @@ function RainfallChart({
         ) : null}
       </svg>
       <div className="chart-legend">
+        <LegendToggle
+          name="quality-overlay"
+          active={visible.quality}
+          onClick={() => toggle("quality")}
+        >
+          Wellenqualität %
+        </LegendToggle>
         <LegendToggle name="rain-area" active={visible.area} onClick={() => toggle("area")}>
           Gebietsmittel Regen
         </LegendToggle>
@@ -6753,6 +6885,7 @@ function RainfallChart({
 
 function SurfLevelChart({
   history,
+  qualityOverlay,
   timeDomain,
   markerTime,
   levelMin,
@@ -6760,6 +6893,7 @@ function SurfLevelChart({
   observations,
 }: {
   history: HistoryPoint[];
+  qualityOverlay: QualityOverlayPoint[];
   timeDomain: TimeDomain;
   markerTime: number;
   levelMin: number;
@@ -6767,6 +6901,7 @@ function SurfLevelChart({
   observations: SurfObservation[];
 }) {
   const [visible, setVisible] = useState<Record<LevelSeriesKey, boolean>>({
+    quality: true,
     kroessbach: true,
     puig: true,
     gaerberbach: true,
@@ -6861,6 +6996,9 @@ function SurfLevelChart({
         <text className="chart-title" x={plot.left} y={16}>
           Pegel im Zeitverlauf
         </text>
+        {visible.quality
+          ? qualityOverlayElements(qualityOverlay, timeDomain, x, plot, plotWidth)
+          : null}
         {gridTicks.map((tick) => (
           <line
             key={tick.t}
@@ -6971,6 +7109,13 @@ function SurfLevelChart({
         ) : null}
       </svg>
       <div className="chart-legend">
+        <LegendToggle
+          name="quality-overlay"
+          active={visible.quality}
+          onClick={() => toggle("quality")}
+        >
+          Wellenqualität %
+        </LegendToggle>
         <LegendToggle name="kroessbach" active={visible.kroessbach} onClick={() => toggle("kroessbach")}>
           Krössbach Pegel
         </LegendToggle>
@@ -7059,6 +7204,93 @@ function linePath(
       return `${command} ${x(point.t).toFixed(1)} ${y(point.value ?? 0).toFixed(1)}`;
     })
     .join(" ");
+}
+
+function qualityOverlayElements(
+  points: QualityOverlayPoint[],
+  timeDomain: TimeDomain,
+  x: (time: number) => number,
+  plot: { left: number; top: number; right: number; bottom: number },
+  plotWidth: number,
+) {
+  const visiblePoints = points.filter(
+    (point) => point.t >= timeDomain.min && point.t <= timeDomain.max,
+  );
+  if (!visiblePoints.length) return null;
+
+  const bandHeight = 30;
+  const bandTop = plot.top + 7;
+  const y = (score: number) =>
+    bandTop + bandHeight - (clamp(score, 0, 100) / 100) * bandHeight;
+  const labelledPoints = visiblePoints.reduce<QualityOverlayPoint[]>((labels, point) => {
+    const previous = labels[labels.length - 1];
+    if (!previous || x(point.t) - x(previous.t) >= 52 || point === visiblePoints.at(-1)) {
+      labels.push(point);
+    }
+    return labels;
+  }, []);
+
+  return (
+    <g className="quality-overlay">
+      <rect
+        className="quality-overlay-band"
+        x={plot.left}
+        y={bandTop}
+        width={plotWidth}
+        height={bandHeight}
+        rx="6"
+      />
+      <text className="quality-overlay-title" x={plot.left + 8} y={bandTop - 5}>
+        Wellenqualität %
+      </text>
+      {visiblePoints.slice(1).map((point, index) => {
+        const previous = visiblePoints[index];
+        const averageScore = (previous.score + point.score) / 2;
+        return (
+          <line
+            key={`${previous.t}-${point.t}`}
+            className={`quality-overlay-line ${
+              previous.source === "forecast" || point.source === "forecast"
+                ? "forecast"
+                : "session"
+            }`}
+            x1={x(previous.t)}
+            x2={x(point.t)}
+            y1={y(previous.score)}
+            y2={y(point.score)}
+            style={{ stroke: qualityColor(averageScore) }}
+          />
+        );
+      })}
+      {visiblePoints.map((point) => (
+        <circle
+          key={`${point.source}-${point.t}`}
+          className={`quality-overlay-dot ${point.source}`}
+          cx={x(point.t)}
+          cy={y(point.score)}
+          r={point.source === "session" ? 4 : 3}
+          style={{ fill: qualityColor(point.score) }}
+        >
+          <title>
+            {`${point.source === "session" ? "Wellenmeister" : "Forecast"} ${formatTime(
+              point.t,
+            )} · ${point.score} %`}
+          </title>
+        </circle>
+      ))}
+      {labelledPoints.map((point) => (
+        <text
+          key={`label-${point.source}-${point.t}`}
+          className="quality-overlay-label"
+          x={x(point.t)}
+          y={Math.max(bandTop + 8, y(point.score) - 6)}
+          textAnchor="middle"
+        >
+          {point.score}%
+        </text>
+      ))}
+    </g>
+  );
 }
 
 function ChartTimeControl({

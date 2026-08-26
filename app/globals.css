@@ -1946,6 +1946,53 @@ h3 {
   stroke-width: 2.2;
 }
 
+.quality-overlay {
+  pointer-events: none;
+}
+
+.quality-overlay-band {
+  fill: rgba(255, 255, 255, 0.72);
+  stroke: rgba(96, 116, 123, 0.16);
+  stroke-width: 1;
+}
+
+.quality-overlay-title,
+.quality-overlay-label {
+  fill: var(--ink);
+  font-weight: 900;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.82);
+  stroke-width: 3px;
+}
+
+.quality-overlay-title {
+  font-size: 0.56rem;
+}
+
+.quality-overlay-label {
+  font-size: 0.52rem;
+}
+
+.quality-overlay-line {
+  fill: none;
+  opacity: 0.82;
+  stroke-linecap: round;
+  stroke-width: 2.2;
+}
+
+.quality-overlay-line.forecast {
+  stroke-dasharray: 4 5;
+}
+
+.quality-overlay-dot {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.quality-overlay-dot.forecast {
+  opacity: 0.78;
+}
+
 .trim-axis {
   stroke: rgba(109, 91, 208, 0.22);
   stroke-width: 1;
@@ -2145,6 +2192,12 @@ h3 {
   box-shadow: 0 0 0 1px var(--line);
   height: 12px;
   width: 12px;
+}
+
+.chart-legend .quality-overlay::before {
+  background: linear-gradient(90deg, #b64f45, #be7e18, #3f7c48);
+  border: 1px solid rgba(33, 54, 63, 0.14);
+  box-shadow: none;
 }
 
 .chart-legend b {
